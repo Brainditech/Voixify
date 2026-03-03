@@ -5,7 +5,7 @@
     "main": "electron.cjs",
     "private": true,
     "scripts": {
-        "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+        "dev": "concurrently -k \"node ../backend/src/index.js\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
         "build": "vite build",
         "preview": "vite preview",
         "electron": "electron .",
