@@ -26,8 +26,8 @@ for (const envPath of envPaths) {
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const PILL_W = 180;
 const PILL_H = 56;
-const SETTINGS_W = 720;
-const SETTINGS_H = 600;
+const SETTINGS_W = 820;
+const SETTINGS_H = 660;
 
 // App icon path — used for tray and settings window
 const ICON_PATH = path.join(__dirname, 'assets', 'icon.png');
