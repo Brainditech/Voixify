@@ -10,8 +10,6 @@ const https = require('https');
 const fs = require('fs');
 
 // ─── Load .env from project root ─────────────────────────────
-// In dev, .env is at ../../.env relative to app/electron.cjs
-// In production (packaged), fall back to the app directory
 const envPaths = [
     path.resolve(__dirname, '..', '..', '.env'),   // dev: project root
     path.resolve(__dirname, '..', '.env'),          // alt: one level up
@@ -29,19 +27,20 @@ for (const envPath of envPaths) {
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const PILL_W = 180;
 const PILL_H = 56;
+const SETTINGS_W = 500;
+const SETTINGS_H = 580;
+
+// App icon path — used for tray and settings window
+const ICON_PATH = path.join(__dirname, 'assets', 'icon.png');
 
 // Deepgram key MUST come from environment — never hardcode API keys
 const DEEPGRAM_KEY = process.env.DEEPGRAM_KEY;
 if (!DEEPGRAM_KEY) {
     console.error('[FATAL] DEEPGRAM_KEY is not set in .env — Voixify cannot transcribe without it.');
-    // Don't exit immediately — let the app start so the user sees the tray icon
 }
 
 // ─── WebM repair ────────────────────────────────────────────
-// Chromium live WebM has EBML header at a non-zero offset; strip leading garbage.
-// Returns null if no valid EBML header found.
 function fixWebmBuffer(buf) {
-    // We read 4 bytes (i, i+1, i+2, i+3), so stop at buf.length - 4
     const scanLimit = Math.min(buf.length - 4, 65536);
     for (let i = 0; i < scanLimit; i++) {
         if (buf[i] === 0x1a && buf[i + 1] === 0x45 && buf[i + 2] === 0xdf && buf[i + 3] === 0xa3) {
@@ -53,13 +52,13 @@ function fixWebmBuffer(buf) {
 
 // ─── State ───────────────────────────────────────────────────
 let mainWindow = null;
+let settingsWindow = null;
 let tray = null;
 let currentHotkey = 'CommandOrControl+Space';
 let isRecordingActive = false;
 let processingAudio = false;
 
 // ─── Safe IPC send ───────────────────────────────────────────
-// Guards against sending to a destroyed window (race condition crash)
 function safeSend(channel, ...args) {
     if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
         mainWindow.webContents.send(channel, ...args);
@@ -70,6 +69,16 @@ function safeSend(channel, ...args) {
 function pillPos() {
     const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
     return { x: Math.round((sw - PILL_W) / 2), y: sh - PILL_H - 20 };
+}
+
+// ─── App icon ────────────────────────────────────────────────
+function getAppIcon() {
+    if (fs.existsSync(ICON_PATH)) {
+        return nativeImage.createFromPath(ICON_PATH);
+    }
+    // Fallback: tiny transparent 1×1 placeholder
+    console.warn('[ICON] icon.png not found, using placeholder');
+    return nativeImage.createEmpty();
 }
 
 // ─── Create pill window ──────────────────────────────────────
@@ -83,18 +92,54 @@ function createWindow() {
         focusable: false,
         show: false,
         backgroundColor: '#00000000',
+        icon: getAppIcon(),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
             preload: path.join(__dirname, 'preload.cjs'),
-            // webSecurity: true (default) — never disable same-origin policy
         },
     });
 
-    if (isDev) mainWindow.loadURL('http://localhost:5173');
-    else mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+    if (isDev) mainWindow.loadURL('http://localhost:5173/#/pill');
+    else mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'pill' });
 
     mainWindow.on('closed', () => { mainWindow = null; });
+}
+
+// ─── Create settings window ──────────────────────────────────
+function createSettingsWindow() {
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+        settingsWindow.focus();
+        return;
+    }
+
+    const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
+    settingsWindow = new BrowserWindow({
+        width: SETTINGS_W,
+        height: SETTINGS_H,
+        x: Math.round((sw - SETTINGS_W) / 2),
+        y: Math.round((sh - SETTINGS_H) / 2),
+        frame: false,
+        transparent: false,
+        resizable: false,
+        alwaysOnTop: false,
+        skipTaskbar: false,
+        hasShadow: true,
+        show: false,
+        backgroundColor: '#111115',
+        icon: getAppIcon(),
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload.cjs'),
+        },
+    });
+
+    if (isDev) settingsWindow.loadURL('http://localhost:5173/#/settings');
+    else settingsWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'settings' });
+
+    settingsWindow.once('ready-to-show', () => settingsWindow.show());
+    settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 
 // ─── Show pill ───────────────────────────────────────────────
@@ -116,18 +161,13 @@ function triggerStop() {
 }
 
 // ─── Hotkey registration — hold-to-talk mode ─────────────────
-// Hold the shortcut key to record, release to stop and paste.
-// Detection: keyboard repeat events fire while key is held;
-// when repeats stop, we know the key was released.
-// IMPORTANT: Windows keyboard repeat initial delay is 250–1000ms (default ~500ms).
-// We use a longer timeout for the first keydown, then a shorter one once repeats arrive.
 let holdTimer = null;
 let repeatCount = 0;
 
 function registerHotkey(key) {
     globalShortcut.unregisterAll();
     currentHotkey = key;
-    if (tray) tray.setToolTip(`Voixify — ${key}`);
+    if (tray) tray.setToolTip('Voixify');
 
     globalShortcut.register(key, () => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -136,19 +176,15 @@ function registerHotkey(key) {
         repeatCount++;
 
         if (repeatCount === 1) {
-            // First keydown — start recording
             isRecordingActive = true;
             showPill();
         }
 
-        // Adaptive timeout:
-        // - First press: 800ms (must survive Windows keyboard repeat initial delay)
-        // - After repeat detected: 300ms for responsive release detection
+        // Adaptive: 800ms on first press (> Windows repeat initial delay), 300ms after
         const timeout = repeatCount <= 1 ? 800 : 300;
 
         if (holdTimer) clearTimeout(holdTimer);
         holdTimer = setTimeout(() => {
-            // No more repeat events → key released
             if (isRecordingActive) {
                 isRecordingActive = false;
                 triggerStop();
@@ -163,16 +199,22 @@ function registerHotkey(key) {
 
 // ─── Tray ─────────────────────────────────────────────────────
 function createTray() {
-    const icon = nativeImage.createFromDataURL(
-        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAc0lEQVQ4jWNgYGD4z0A+YGRgYGBiIFMzIwMDAwsDmZoZGBgYWBjI1MzAwMDAwkCmZgYGBgYWBjI1MzAwMLAwkKmZgYGBgYWBTM0MDAwMLAxkamZgYGBgYSBTMwMDAwMLI5maGRgYGFgYyNTMwMDAAACGGwqFr4Nf+QAAAABJRU5ErkJggg=='
-    );
-    tray = new Tray(icon);
-    tray.setContextMenu(Menu.buildFromTemplate([
+    const icon = getAppIcon();
+    // For tray, resize to 16×16 (Windows tray standard)
+    const trayIcon = icon.isEmpty() ? icon : icon.resize({ width: 16, height: 16 });
+    tray = new Tray(trayIcon);
+
+    const updateMenu = () => tray.setContextMenu(Menu.buildFromTemplate([
         { label: '🎙 Voixify', enabled: false },
+        { type: 'separator' },
+        { label: '⚙️  Paramètres', click: () => createSettingsWindow() },
         { type: 'separator' },
         { label: 'Quitter', click: () => app.quit() },
     ]));
-    tray.setToolTip(`Voixify — ${currentHotkey}`);
+
+    updateMenu();
+    tray.setToolTip('Voixify');
+    tray.on('double-click', () => createSettingsWindow());
 }
 
 // ─── HTTP POST helper ─────────────────────────────────────────
@@ -239,7 +281,6 @@ async function callDeepgram(audioBuffer, language) {
 
 // ─── IPC handlers ────────────────────────────────────────────
 
-// Renderer signals it is fully mounted — hide window if still visible from load flash
 ipcMain.handle('renderer-ready', () => {
     if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
         mainWindow.hide();
@@ -248,7 +289,6 @@ ipcMain.handle('renderer-ready', () => {
 });
 
 ipcMain.handle('process-audio', async (_, { audioBase64, lang, duration }) => {
-    // Reject duplicate concurrent calls
     if (processingAudio) {
         console.log('[PROCESS] Skipping — already processing');
         return { success: false, error: 'Already processing' };
@@ -256,7 +296,6 @@ ipcMain.handle('process-audio', async (_, { audioBase64, lang, duration }) => {
     processingAudio = true;
 
     try {
-        // No minimum duration check — even short phrases should be transcribed
         console.log('[PROCESS] Duration:', duration, 'ms');
 
         const raw = Buffer.from(audioBase64, 'base64');
@@ -273,7 +312,7 @@ ipcMain.handle('process-audio', async (_, { audioBase64, lang, duration }) => {
         console.log('[PROCESS] Transcript:', transcript.substring(0, 100));
         if (!transcript.trim()) return { success: false, error: 'Aucun texte capté' };
 
-        // Save audio to disk (best-effort, don't fail the whole request if disk write fails)
+        // Save audio (best-effort)
         let audioPath = null;
         try {
             const recordingsDir = path.join(app.getPath('userData'), 'recordings');
@@ -294,7 +333,6 @@ ipcMain.handle('process-audio', async (_, { audioBase64, lang, duration }) => {
     }
 });
 
-// Renderer signals the recording→processing cycle is fully done (success or failure)
 ipcMain.handle('recording-ended', () => {
     isRecordingActive = false;
     processingAudio = false;
@@ -311,16 +349,32 @@ ipcMain.handle('copy-to-clipboard', (_, text) => {
     return true;
 });
 
-// Paste: write clipboard, hide window, then let WScript send Ctrl+V to the foreground app
 const vbsPastePath = path.join(os.tmpdir(), 'vx_paste.vbs');
 ipcMain.handle('paste-text', (_, text) => {
     clipboard.writeText(text);
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
-    // 200ms sleep inside VBS lets Windows restore focus to the previous app
     fs.writeFileSync(vbsPastePath, 'WScript.Sleep 200\r\nCreateObject("WScript.Shell").SendKeys "^v"', 'utf8');
     exec(`wscript //nologo "${vbsPastePath}"`, (err) => {
         if (err) console.error('[PASTE]', err.message);
     });
+});
+
+// Settings IPC — update hotkey from Settings window
+ipcMain.handle('update-hotkey', (_, newKey) => {
+    try {
+        registerHotkey(newKey);
+        console.log('[SETTINGS] Hotkey updated to:', newKey);
+        return { success: true };
+    } catch (e) {
+        console.error('[SETTINGS] Invalid hotkey:', e.message);
+        return { success: false, error: e.message };
+    }
+});
+
+// Settings window control
+ipcMain.handle('open-settings', () => createSettingsWindow());
+ipcMain.handle('close-settings', () => {
+    if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.close();
 });
 
 // ─── App lifecycle ────────────────────────────────────────────
@@ -331,20 +385,17 @@ app.whenReady().then(() => {
     console.log('🎙 Voixify ready — hold Ctrl+Space to dictate');
 });
 
-// Keep the app alive when all windows are closed (tray app behavior)
 app.on('window-all-closed', () => {
-    // Intentionally empty — prevent default quit behavior
+    // Intentionally empty — prevent default quit behavior (tray app)
 });
 
 app.on('will-quit', () => {
     globalShortcut.unregisterAll();
-    // Clean up temporary VBS paste script
     try {
         if (fs.existsSync(vbsPastePath)) {
             fs.unlinkSync(vbsPastePath);
-            console.log('[CLEANUP] Removed temp VBS file');
         }
     } catch (e) {
-        // Best effort — don't crash on cleanup failure
+        // Best effort cleanup
     }
 });

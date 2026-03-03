@@ -1,13 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './styles/globals.css';
 import { useVoixify } from './hooks/useVoixify';
+import Settings from './components/Settings';
+
+// Hash-based routing: #/settings → Settings window, anything else → Pill
+const isSettingsWindow = window.location.hash.includes('settings');
 
 export default function App() {
+    if (isSettingsWindow) return <Settings />;
+    return <Pill />;
+}
+
+function Pill() {
     const [state, setState] = useState<'idle' | 'recording' | 'processing'>('idle');
     const { startRecording, stopRecording } = useVoixify();
 
-    // Keep stable refs so the IPC callbacks always call the latest functions
-    // without re-registering listeners on every render.
     const startRef = useRef(startRecording);
     const stopRef = useRef(stopRecording);
     useEffect(() => { startRef.current = startRecording; }, [startRecording]);
@@ -17,11 +24,8 @@ export default function App() {
         const api = (window as any).voixify;
         if (!api) return;
 
-        // Tell main process we're mounted — ensures window is hidden until first hotkey press
         api.rendererReady();
 
-        // Each call to onStateChange/onStopRecording replaces the previous listener
-        // (removeAllListeners is called inside preload.cjs).
         api.onStateChange((s: string) => {
             setState(s as any);
             if (s === 'recording') startRef.current();
@@ -29,11 +33,10 @@ export default function App() {
 
         api.onStopRecording(() => {
             setState('processing');
-            // Reset to idle when done so the pill doesn't flash old state on next show
             Promise.resolve(stopRef.current()).finally(() => setState('idle'));
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Register once — preload ensures only one listener is active at a time
+    }, []);
 
     return (
         <div className={`pill ${state}`}>

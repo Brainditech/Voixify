@@ -1,23 +1,20 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('voixify', {
-    // IPC events from main → renderer (replace any previous listener)
-    onStateChange: (cb) => {
-        ipcRenderer.removeAllListeners('state-change');
-        ipcRenderer.on('state-change', (_, state) => cb(state));
-    },
-    onStopRecording: (cb) => {
-        ipcRenderer.removeAllListeners('stop-recording');
-        ipcRenderer.on('stop-recording', cb);
-    },
-
-    // Renderer → main
+    // Pill lifecycle
     rendererReady: () => ipcRenderer.invoke('renderer-ready'),
-    hideWindow: () => ipcRenderer.invoke('hide-window'),
-    copyToClipboard: (t) => ipcRenderer.invoke('copy-to-clipboard', t),
-    pasteText: (t) => ipcRenderer.invoke('paste-text', t),
     processAudio: (payload) => ipcRenderer.invoke('process-audio', payload),
-
-    // Signal that the recording→processing cycle is fully done
     recordingEnded: () => ipcRenderer.invoke('recording-ended'),
+    hideWindow: () => ipcRenderer.invoke('hide-window'),
+    pasteText: (text) => ipcRenderer.invoke('paste-text', text),
+    copyToClipboard: (text) => ipcRenderer.invoke('copy-to-clipboard', text),
+
+    // Settings
+    openSettings: () => ipcRenderer.invoke('open-settings'),
+    closeSettings: () => ipcRenderer.invoke('close-settings'),
+    updateHotkey: (key) => ipcRenderer.invoke('update-hotkey', key),
+
+    // Events from main → renderer
+    onStateChange: (cb) => ipcRenderer.on('state-change', (_, s) => cb(s)),
+    onStopRecording: (cb) => ipcRenderer.on('stop-recording', () => cb()),
 });

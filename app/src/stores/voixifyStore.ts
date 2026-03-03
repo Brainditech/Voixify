@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type RecordingState = 'idle' | 'recording' | 'processing' | 'done' | 'error';
-export type CorrectionLevel = 'minimal' | 'standard' | 'advanced';
+export type CorrectionLevel = 'off' | 'minimal' | 'standard' | 'advanced';
 export type AppMode = 'dictate' | 'ask';
 export type Lang = 'fr' | 'en';
 
