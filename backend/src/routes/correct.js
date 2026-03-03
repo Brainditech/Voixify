@@ -52,8 +52,8 @@ router.post('/', async (req, res) => {
             console.warn(`[CORRECT] Unknown level "${level}", falling back to "standard"`);
         }
 
-        const ollamaUrl = process.env.OLLAMA_URL || 'http://host.docker.internal:11434';
-        const model = process.env.OLLAMA_MODEL || 'kimi-k2.5:cloud';
+        const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
+        const model = req.body.model || process.env.OLLAMA_MODEL || 'llama3';
         const prompts = PROMPTS[lang] || PROMPTS.fr;
 
         let systemPrompt, userPrompt;
@@ -99,11 +99,11 @@ router.post('/', async (req, res) => {
         const corrected = data.message?.content || data.response || text;
         console.log(`[CORRECT] Output: "${corrected.substring(0, 80)}..."`);
 
-        res.json({ corrected: corrected.trim(), model });
+        res.json({ correctedText: corrected.trim(), model });
     } catch (err) {
         console.error('[CORRECT ERROR]', err.message);
         // Fallback: return original text if Ollama fails
-        res.status(500).json({ error: err.message, corrected: req.body.text });
+        res.status(500).json({ error: err.message, correctedText: req.body.text });
     }
 });
 
