@@ -48,6 +48,7 @@ const mainSettings = {
     deepgramModel: 'nova-3',
     correctionLevel: 'off',
     autopasteEnabled: true,
+    llmCorrectionEnabled: false,
 };
 
 // ─── WebM repair ────────────────────────────────────────────

@@ -13,7 +13,8 @@ export default function App() {
 }
 
 function Pill() {
-    const [state, setState] = useState<'idle' | 'recording' | 'processing'>('idle');
+    const recordingState = useVoixifyStore(s => s.recordingState);
+    const setRecordingState = useVoixifyStore(s => s.setRecordingState);
     const { startRecording, stopRecording } = useVoixify();
 
     const startRef = useRef(startRecording);
@@ -33,19 +34,19 @@ function Pill() {
         api.updateHotkey(hotkey).catch(() => { });
 
         api.onStateChange((s: string) => {
-            setState(s as any);
+            setRecordingState(s as any);
             if (s === 'recording') startRef.current();
         });
 
         api.onStopRecording(() => {
-            setState('processing');
-            Promise.resolve(stopRef.current()).finally(() => setState('idle'));
+            setRecordingState('processing');
+            Promise.resolve(stopRef.current()).finally(() => setRecordingState('idle'));
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (
-        <div className={`pill ${state}`}>
+        <div className={`pill ${recordingState}`}>
             <div className="pill-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
