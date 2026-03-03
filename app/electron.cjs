@@ -167,7 +167,7 @@ let repeatCount = 0;
 function registerHotkey(key) {
     globalShortcut.unregisterAll();
     currentHotkey = key;
-    if (tray) tray.setToolTip(`Voixify — ${key}`);
+    if (tray) tray.setToolTip('Voixify');
 
     globalShortcut.register(key, () => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -213,7 +213,7 @@ function createTray() {
     ]));
 
     updateMenu();
-    tray.setToolTip(`Voixify — ${currentHotkey}`);
+    tray.setToolTip('Voixify');
     tray.on('double-click', () => createSettingsWindow());
 }
 
