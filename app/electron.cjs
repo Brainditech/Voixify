@@ -294,7 +294,7 @@ ipcMain.handle('renderer-ready', () => {
 // which forwards it to the Whisper Docker (JSON or multipart).
 function callWhisperLocal(audioBuffer, language) {
     return new Promise((resolve, reject) => {
-        const BACKEND_URL = 'http://localhost:3001';
+        const BACKEND_URL = 'http://127.0.0.1:3001';
         const boundary = '----VoixifyBoundary' + Date.now();
         const filename = 'audio.webm';
         const mimeType = 'audio/webm';
