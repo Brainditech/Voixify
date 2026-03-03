@@ -360,33 +360,54 @@ function callWhisperLocal(audioBuffer, language) {
     });
 }
 
-ipcMain.handle('process-audio', async (_, { audioBase64, duration }) => {
+ipcMain.handle('process-audio', async (_, { audioBase64, duration, lang, deepgramModel, transcriptionSource }) => {
     if (processingAudio) {
-        return { success: false, error: 'Already processing' };
+        return { success: false, error: 'Déjà en cours de traitement' };
     }
     processingAudio = true;
 
-    // Use mainSettings as single source of truth — not the renderer payload.
-    // This avoids the multi-window Zustand isolation problem.
-    const { transcriptionSource, lang, deepgramModel } = mainSettings;
+    // Use values from the renderer payload (Zustand store = persisted source of truth).
+    // Fall back to mainSettings only if payload is missing values (legacy compat).
+    const src = transcriptionSource || mainSettings.transcriptionSource;
+    const language = lang || mainSettings.lang;
+    const dgModel = deepgramModel || mainSettings.deepgramModel;
 
     try {
-
-
         const raw = Buffer.from(audioBase64, 'base64');
-
 
         const webmBuffer = fixWebmBuffer(raw);
         if (!webmBuffer) {
-            console.error('[PROCESS] No EBML header found, size:', raw.length);
             return { success: false, error: 'Audio invalide (trop court ou corrompu)' };
         }
 
         let transcript;
-        if (transcriptionSource === 'whisper') {
-            transcript = await callWhisperLocal(webmBuffer, lang);
+        if (src === 'whisper') {
+            try {
+                transcript = await callWhisperLocal(webmBuffer, language);
+            } catch (err) {
+                if (err.message?.includes('ECONNREFUSED')) {
+                    return { success: false, error: 'Whisper local injoignable — vérifiez que le backend Docker est lancé' };
+                }
+                if (err.message?.includes('timeout')) {
+                    return { success: false, error: 'Whisper local timeout (60s) — le modèle est peut-être surchargé' };
+                }
+                return { success: false, error: `Whisper: ${err.message}` };
+            }
         } else {
-            transcript = await callDeepgram(webmBuffer, lang, deepgramModel);
+            try {
+                transcript = await callDeepgram(webmBuffer, language, dgModel);
+            } catch (err) {
+                if (err.message?.includes('DEEPGRAM_KEY')) {
+                    return { success: false, error: 'Clé API Deepgram manquante — ajoutez DEEPGRAM_KEY dans .env' };
+                }
+                if (err.message?.includes('401') || err.message?.includes('403')) {
+                    return { success: false, error: 'Clé API Deepgram invalide ou expirée' };
+                }
+                if (err.message?.includes('ENOTFOUND') || err.message?.includes('ECONNREFUSED')) {
+                    return { success: false, error: 'Deepgram injoignable — vérifiez votre connexion internet' };
+                }
+                return { success: false, error: `Deepgram: ${err.message}` };
+            }
         }
 
         if (!transcript.trim()) return { success: false, error: 'Aucun texte capté' };

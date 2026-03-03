@@ -101,9 +101,19 @@ router.post('/', async (req, res) => {
 
         res.json({ correctedText: corrected.trim(), model });
     } catch (err) {
-        console.error('[CORRECT ERROR]', err.message);
-        // Fallback: return original text if Ollama fails
-        res.status(500).json({ error: err.message, correctedText: req.body.text });
+        // Build a user-friendly error message
+        let userError = err.message;
+        if (err.code === 'ECONNREFUSED' || err.message?.includes('ECONNREFUSED')) {
+            userError = `Ollama injoignable sur ${process.env.OLLAMA_URL || 'http://localhost:11434'} — vérifiez qu'Ollama est lancé`;
+        } else if (err.type === 'request-timeout' || err.message?.includes('timeout')) {
+            userError = `Ollama timeout (60s) — le modèle est peut-être trop lourd`;
+        } else if (err.message?.includes('404') || err.message?.includes('model')) {
+            userError = `Modèle IA introuvable — vérifiez le nom du modèle dans les paramètres`;
+        }
+
+        console.error('[CORRECT ERROR]', userError);
+        // Graceful fallback: return original text so dictation still works
+        res.status(500).json({ error: userError, correctedText: req.body.text });
     }
 });
 
