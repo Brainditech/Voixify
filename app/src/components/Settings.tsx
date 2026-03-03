@@ -61,6 +61,7 @@ export default function Settings() {
                     correctionLevel,
                     llmCorrectionEnabled,
                     autopasteEnabled,
+                    ollamaModel,
                 });
             } catch { }
         }
@@ -239,7 +240,7 @@ export default function Settings() {
                         <select
                             className="settings-select"
                             value={ollamaModel}
-                            onChange={e => setOllamaModel(e.target.value)}
+                            onChange={e => setSetting('ollamaModel', e.target.value, setOllamaModel)}
                         >
                             {ollamaModels.map(m => (
                                 <option key={m} value={m}>{m}</option>

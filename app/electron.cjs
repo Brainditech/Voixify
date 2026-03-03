@@ -49,6 +49,7 @@ const mainSettings = {
     correctionLevel: 'off',
     autopasteEnabled: true,
     llmCorrectionEnabled: false,
+    ollamaModel: 'kimi-k2.5:cloud',
 };
 
 // ─── WebM repair ────────────────────────────────────────────
