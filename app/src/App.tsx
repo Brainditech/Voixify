@@ -28,10 +28,20 @@ function Pill() {
 
         api.rendererReady();
 
-        // Sync stored hotkey → main process so the registered shortcut always
-        // matches what the user last configured (survives app restarts)
-        const { hotkey } = useVoixifyStore.getState();
-        api.updateHotkey(hotkey).catch(() => { });
+        // Sync ALL persisted settings from Zustand store → main process on startup.
+        // This ensures mainSettings in electron.cjs matches the user's saved preferences,
+        // not the hardcoded defaults (which would reset on every app launch).
+        const state = useVoixifyStore.getState();
+        api.updateSettings({
+            transcriptionSource: state.transcriptionSource,
+            lang: state.lang,
+            deepgramModel: state.deepgramModel,
+            correctionLevel: state.correctionLevel,
+            llmCorrectionEnabled: state.llmCorrectionEnabled,
+            autopasteEnabled: state.autopasteEnabled,
+            ollamaModel: state.ollamaModel,
+        }).catch(() => { });
+        api.updateHotkey(state.hotkey).catch(() => { });
 
         api.onStateChange((s: string) => {
             setRecordingState(s as any);
