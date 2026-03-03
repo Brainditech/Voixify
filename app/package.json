@@ -1,0 +1,43 @@
+{
+    "name": "voixify",
+    "version": "1.0.0",
+    "description": "Premium AI dictation app - Voice to text with LLM correction",
+    "main": "electron.cjs",
+    "private": true,
+    "scripts": {
+        "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+        "build": "vite build",
+        "preview": "vite preview",
+        "electron": "electron .",
+        "dist": "npm run build && electron-builder"
+    },
+    "dependencies": {
+        "dotenv": "^17.3.1",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "zustand": "^4.4.7"
+    },
+    "devDependencies": {
+        "@types/react": "^18.2.0",
+        "@types/react-dom": "^18.2.0",
+        "@vitejs/plugin-react": "^4.2.1",
+        "concurrently": "^8.2.2",
+        "electron": "^28.1.0",
+        "electron-builder": "^24.9.1",
+        "typescript": "^5.3.3",
+        "vite": "^5.0.10",
+        "vite-plugin-electron": "^0.28.4",
+        "wait-on": "^7.2.0"
+    },
+    "build": {
+        "appId": "com.voixify.app",
+        "productName": "Voixify",
+        "win": {
+            "target": "portable",
+            "icon": "public/icon.ico"
+        },
+        "directories": {
+            "output": "dist-electron"
+        }
+    }
+}
