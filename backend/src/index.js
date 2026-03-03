@@ -47,8 +47,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
+// Normalize WHISPER_URL — strip trailing /transcribe so the call in transcribe.js doesn't duplicate it
+const rawWhisperUrl = process.env.WHISPER_URL || 'http://localhost:8000';
+process.env.WHISPER_URL = rawWhisperUrl.replace(/\/transcribe\/?$/, '');
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🎙️  Voixify Backend running on port ${PORT}`);
-  console.log(`📡 Whisper API: ${process.env.WHISPER_URL || '(default)'}`);
+  console.log(`📡 Whisper API: ${process.env.WHISPER_URL}/transcribe`);
   console.log(`🤖 Ollama: ${process.env.OLLAMA_URL || '(default)'} (${process.env.OLLAMA_MODEL || '(default)'})\n`);
 });
