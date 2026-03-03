@@ -4,11 +4,12 @@
     "description": "Premium AI dictation app - Voice to text with LLM correction",
     "main": "electron.cjs",
     "private": true,
+    "type": "module",
     "scripts": {
-        "dev": "concurrently -k \"node ../backend/src/index.js\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+        "dev": "concurrently -k \"node --no-deprecation ../backend/src/index.js\" \"vite\" \"wait-on http://localhost:5173 && electron --no-deprecation .\"",
         "build": "vite build",
         "preview": "vite preview",
-        "electron": "electron .",
+        "electron": "electron --no-deprecation .",
         "dist": "npm run build && electron-builder"
     },
     "dependencies": {
