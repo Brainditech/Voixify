@@ -9,6 +9,10 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 
+// ─── Suppress Chromium GPU-cache warnings ────────────────────
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+app.commandLine.appendSwitch('disable-gpu-cache');
+
 // ─── Load .env from project root ─────────────────────────────
 const envPaths = [
     path.resolve(__dirname, '..', '..', '.env'),   // dev: project root
@@ -17,7 +21,7 @@ const envPaths = [
 ];
 for (const envPath of envPaths) {
     if (fs.existsSync(envPath)) {
-        require('dotenv').config({ path: envPath });
+        require('dotenv').config({ path: envPath, quiet: true });
         break;
     }
 }
@@ -458,7 +462,7 @@ app.whenReady().then(() => {
     createWindow();
     createTray();
     registerHotkey('CommandOrControl+Space');
-    console.log('🎙 Voixify ready — hold Ctrl+Space to dictate');
+
 });
 
 app.on('window-all-closed', () => {
