@@ -435,6 +435,10 @@ ipcMain.handle('recording-ended', () => {
 ipcMain.handle('update-settings', (_, partial) => {
     Object.assign(mainSettings, partial);
 
+    // Broadcast to the Pill window so its Zustand store stays in sync.
+    // (Settings window and Pill window have separate localStorage/Zustand stores)
+    safeSend('settings-changed', { ...mainSettings });
+
     return true;
 });
 

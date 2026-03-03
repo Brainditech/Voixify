@@ -52,6 +52,19 @@ function Pill() {
             setRecordingState('processing');
             Promise.resolve(stopRef.current()).finally(() => setRecordingState('idle'));
         });
+
+        // Listen for settings changes from the Settings window (separate BrowserWindow).
+        // This bridges the isolated localStorage gap between the two Electron renderers.
+        api.onSettingsChanged?.((settings: any) => {
+            const store = useVoixifyStore.getState();
+            if (settings.lang !== undefined) store.setLang(settings.lang);
+            if (settings.transcriptionSource !== undefined) store.setTranscriptionSource(settings.transcriptionSource);
+            if (settings.deepgramModel !== undefined) store.setDeepgramModel(settings.deepgramModel);
+            if (settings.correctionLevel !== undefined) store.setCorrectionLevel(settings.correctionLevel);
+            if (settings.llmCorrectionEnabled !== undefined) store.setLlmCorrectionEnabled(settings.llmCorrectionEnabled);
+            if (settings.autopasteEnabled !== undefined) store.setAutopasteEnabled(settings.autopasteEnabled);
+            if (settings.ollamaModel !== undefined) store.setOllamaModel(settings.ollamaModel);
+        });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
