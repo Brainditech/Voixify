@@ -289,7 +289,64 @@ ipcMain.handle('renderer-ready', () => {
     console.log('[MAIN] Renderer ready');
 });
 
-ipcMain.handle('process-audio', async (_, { audioBase64, lang, deepgramModel, duration }) => {
+// ─── Whisper local (via backend proxy) ───────────────────────
+// Sends the WebM buffer to the Express backend at localhost:3001,
+// which forwards it to the Whisper Docker (JSON or multipart).
+function callWhisperLocal(audioBuffer, language) {
+    return new Promise((resolve, reject) => {
+        const BACKEND_URL = 'http://localhost:3001';
+        const boundary = '----VoixifyBoundary' + Date.now();
+        const filename = 'audio.webm';
+        const mimeType = 'audio/webm';
+
+        // Build multipart body manually (no external deps in main process)
+        const pre = Buffer.from(
+            `--${boundary}\r\nContent-Disposition: form-data; name="audio"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`
+        );
+        const langField = Buffer.from(
+            `\r\n--${boundary}\r\nContent-Disposition: form-data; name="lang"\r\n\r\n${language}\r\n--${boundary}--\r\n`
+        );
+        const body = Buffer.concat([pre, audioBuffer, langField]);
+
+        const urlObj = new URL(`${BACKEND_URL}/api/transcribe`);
+        const options = {
+            hostname: urlObj.hostname,
+            port: urlObj.port || 3001,
+            path: urlObj.pathname,
+            method: 'POST',
+            headers: {
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                'Content-Length': body.length,
+            },
+        };
+
+        const req = http.request(options, (res) => {
+            let data = '';
+            res.on('data', d => { data += d; });
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(data);
+                    if (res.statusCode >= 200 && res.statusCode < 300) {
+                        resolve(json.transcript || '');
+                    } else {
+                        reject(new Error(`Backend ${res.statusCode}: ${json.error || data}`));
+                    }
+                } catch {
+                    reject(new Error(`Backend invalid JSON: ${data.substring(0, 200)}`));
+                }
+            });
+        });
+        req.on('error', reject);
+        req.setTimeout(60_000, () => {
+            req.destroy();
+            reject(new Error('Whisper local timeout (60s)'));
+        });
+        req.write(body);
+        req.end();
+    });
+}
+
+ipcMain.handle('process-audio', async (_, { audioBase64, lang, deepgramModel, transcriptionSource, duration }) => {
     if (processingAudio) {
         console.log('[PROCESS] Skipping — already processing');
         return { success: false, error: 'Already processing' };
@@ -302,30 +359,27 @@ ipcMain.handle('process-audio', async (_, { audioBase64, lang, deepgramModel, du
         const raw = Buffer.from(audioBase64, 'base64');
         console.log('[PROCESS] Raw buffer:', raw.length, 'bytes, first 8:', raw.slice(0, 8).toString('hex'));
 
+        const source = transcriptionSource || 'deepgram';
+        console.log(`[PROCESS] Source: ${source}, Duration: ${duration}ms`);
+
         const webmBuffer = fixWebmBuffer(raw);
         if (!webmBuffer) {
             console.error('[PROCESS] No EBML header found, size:', raw.length);
             return { success: false, error: 'Audio invalide (trop court ou corrompu)' };
         }
-        console.log('[PROCESS] Sending', webmBuffer.length, 'bytes to Deepgram');
 
-        const transcript = await callDeepgram(webmBuffer, lang || 'fr', deepgramModel || 'nova-3');
+        let transcript;
+        if (source === 'whisper') {
+            console.log(`[PROCESS] Routing to Whisper local (${webmBuffer.length} bytes)`);
+            transcript = await callWhisperLocal(webmBuffer, lang || 'fr');
+        } else {
+            console.log(`[PROCESS] Routing to Deepgram ${deepgramModel || 'nova-3'} (${webmBuffer.length} bytes)`);
+            transcript = await callDeepgram(webmBuffer, lang || 'fr', deepgramModel || 'nova-3');
+        }
         console.log('[PROCESS] Transcript:', transcript.substring(0, 100));
         if (!transcript.trim()) return { success: false, error: 'Aucun texte capté' };
 
-        // Save audio (best-effort)
-        let audioPath = null;
-        try {
-            const recordingsDir = path.join(app.getPath('userData'), 'recordings');
-            fs.mkdirSync(recordingsDir, { recursive: true });
-            audioPath = path.join(recordingsDir, `recording-${Date.now()}.webm`);
-            fs.writeFileSync(audioPath, webmBuffer);
-            console.log('[PROCESS] Audio saved:', audioPath);
-        } catch (e) {
-            console.warn('[PROCESS] Could not save audio:', e.message);
-        }
-
-        return { success: true, transcript, audioPath };
+        return { success: true, transcript };
     } catch (err) {
         console.error('[PROCESS ERROR]', err.message);
         return { success: false, error: err.message };

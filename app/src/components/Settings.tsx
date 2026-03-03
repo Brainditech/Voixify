@@ -38,6 +38,7 @@ export default function Settings() {
         correctionLevel, setCorrectionLevel,
         ollamaModel, setOllamaModel,
         deepgramModel, setDeepgramModel,
+        transcriptionSource, setTranscriptionSource,
         whisperUrl, setWhisperUrl,
         ollamaUrl, setOllamaUrl,
         autopasteEnabled, setAutopasteEnabled,
@@ -106,26 +107,52 @@ export default function Settings() {
                     </div>
                 </section>
 
-                {/* Modèle Deepgram */}
+                {/* Source de transcription */}
                 <section className="settings-section">
-                    <h2 className="settings-section-title">Modèle de transcription ☁️</h2>
-                    <div className="model-grid">
-                        {DEEPGRAM_MODELS.map(m => (
-                            <button
-                                key={m.value}
-                                className={`model-btn ${deepgramModel === m.value ? 'active' : ''}`}
-                                onClick={() => setDeepgramModel(m.value)}
-                            >
-                                <span className="model-label">
-                                    {m.label}
-                                    {m.recommended && <span className="model-badge">recommandé</span>}
-                                </span>
-                                <span className="model-desc">{m.desc}</span>
-                            </button>
-                        ))}
+                    <h2 className="settings-section-title">Source de transcription</h2>
+                    <div className="pill-group">
+                        <button
+                            className={`pill-btn ${transcriptionSource === 'deepgram' ? 'active' : ''}`}
+                            onClick={() => setTranscriptionSource('deepgram')}
+                        >
+                            ☁️&nbsp; Deepgram
+                        </button>
+                        <button
+                            className={`pill-btn ${transcriptionSource === 'whisper' ? 'active' : ''}`}
+                            onClick={() => setTranscriptionSource('whisper')}
+                        >
+                            🏠&nbsp; Whisper local
+                        </button>
                     </div>
-                    <p className="settings-hint">Modèle Deepgram utilisé pour la transcription vocale</p>
+                    <p className="settings-hint">
+                        {transcriptionSource === 'deepgram'
+                            ? 'Cloud — rapide, précis, nécessite une clé API'
+                            : 'Local — privé, gratuit, nécessite le backend Docker'}
+                    </p>
                 </section>
+
+                {/* Modèle Deepgram — affiché seulement si source = deepgram */}
+                {transcriptionSource === 'deepgram' && (
+                    <section className="settings-section">
+                        <h2 className="settings-section-title">Modèle de transcription ☁️</h2>
+                        <div className="model-grid">
+                            {DEEPGRAM_MODELS.map(m => (
+                                <button
+                                    key={m.value}
+                                    className={`model-btn ${deepgramModel === m.value ? 'active' : ''}`}
+                                    onClick={() => setDeepgramModel(m.value)}
+                                >
+                                    <span className="model-label">
+                                        {m.label}
+                                        {m.recommended && <span className="model-badge">recommandé</span>}
+                                    </span>
+                                    <span className="model-desc">{m.desc}</span>
+                                </button>
+                            ))}
+                        </div>
+                        <p className="settings-hint">Modèle Deepgram utilisé pour la transcription vocale</p>
+                    </section>
+                )}
 
                 {/* Raccourci */}
                 <section className="settings-section">
@@ -222,6 +249,6 @@ export default function Settings() {
             <div className="settings-footer">
                 <span className="settings-version">Voixify v2.0</span>
             </div>
-        </div>
+        </div >
     );
 }
