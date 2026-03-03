@@ -6,34 +6,40 @@ const router = express.Router();
 const OLLAMA_TIMEOUT_MS = 60_000; // 60 seconds
 const VALID_LEVELS = ['minimal', 'standard', 'advanced'];
 
-// Correction prompts by language
+// Correction prompts by language — STRICT: never alter meaning
 const PROMPTS = {
     fr: {
-        system: `Tu es un correcteur expert de dictée vocale en français. 
-Ton rôle est de corriger un texte transcrit par un système STT (speech-to-text).
-RÈGLES ABSOLUES :
-- Preserve STRICTEMENT le sens et l'intention originale
-- Supprime les mots de remplissage : "euh", "hum", "donc euh", "voilà", "ben", "quoi"
-- Corrige la grammaire, l'orthographe et la ponctuation
-- Ne rajoute PAS de contenu qui n'était pas dans le discours
-- Ne réponds qu'avec le texte corrigé, sans explication ni métadonnée`,
-        minimal: "Supprime uniquement les mots de remplissage et ajoute la ponctuation de base.",
-        standard: "Corrige la grammaire, supprime les fillers, ajoute la ponctuation correcte.",
-        advanced: "Reformule pour un style professionnel fluide tout en préservant le sens exact.",
+        system: `Tu es un correcteur de dictée vocale en français.
+Tu reçois un texte brut transcrit par un système de reconnaissance vocale.
+
+RÈGLES STRICTES ET NON NÉGOCIABLES :
+1. Tu ne changes JAMAIS le fond ni le sens du message
+2. Tu ne rajoutes AUCUNE idée, phrase ou information absente du texte original
+3. Tu ne supprimes AUCUNE idée ou information présente dans le texte original
+4. Tu ne reformules PAS les phrases — tu les nettoies uniquement
+5. Tu gardes le vocabulaire et le registre de langue de l'utilisateur
+6. Tu supprimes uniquement les hésitations orales : "euh", "hum", "ben", "quoi", "voilà", "donc euh", "en fait"
+7. Tu réponds UNIQUEMENT avec le texte corrigé, sans commentaire, explication ni métadonnée`,
+        minimal: "Supprime les hésitations (euh, hum, ben) et ajoute la ponctuation de base (points, virgules). Ne change RIEN d'autre.",
+        standard: "Supprime les hésitations, corrige les fautes d'orthographe et de grammaire, ajoute la ponctuation. Ne reformule PAS et ne change PAS les mots choisis par l'utilisateur.",
+        advanced: "Supprime les hésitations, corrige orthographe/grammaire/ponctuation, et améliore la fluidité SANS changer les mots, les idées ni le sens. Ne rajoute rien, ne supprime aucune idée.",
         ask: `Tu es un assistant de communication. L'utilisateur te donne une instruction vocale et tu génères un message complet et approprié dans la langue demandée. Adapte le ton selon le contexte (email = formel, message = décontracté). Réponds uniquement avec le message généré, sans explication.`
     },
     en: {
-        system: `You are an expert voice dictation corrector.
-Your role is to correct text transcribed by a speech-to-text system.
-ABSOLUTE RULES:
-- Strictly preserve the original meaning and intent
-- Remove filler words: "um", "uh", "like", "you know", "so", "basically"
-- Fix grammar, spelling and punctuation
-- Do NOT add content that wasn't in the speech
-- Reply ONLY with the corrected text, no explanation or metadata`,
-        minimal: "Remove only filler words and add basic punctuation.",
-        standard: "Fix grammar, remove fillers, add proper punctuation.",
-        advanced: "Rephrase for a professional, fluent style while preserving exact meaning.",
+        system: `You are a voice dictation corrector.
+You receive raw text transcribed by a speech recognition system.
+
+STRICT, NON-NEGOTIABLE RULES:
+1. NEVER change the meaning or substance of the message
+2. NEVER add ideas, sentences or information not in the original
+3. NEVER remove ideas or information present in the original  
+4. Do NOT rephrase sentences — only clean them up
+5. Keep the user's vocabulary and language register
+6. Only remove oral hesitations: "um", "uh", "like", "you know", "so", "basically", "I mean"
+7. Reply ONLY with the corrected text — no comments, explanations or metadata`,
+        minimal: "Remove hesitations (um, uh, like) and add basic punctuation (periods, commas). Change NOTHING else.",
+        standard: "Remove hesitations, fix spelling and grammar mistakes, add punctuation. Do NOT rephrase or change the user's word choices.",
+        advanced: "Remove hesitations, fix spelling/grammar/punctuation, and improve flow WITHOUT changing words, ideas or meaning. Add nothing, remove no ideas.",
         ask: `You are a communication assistant. The user gives you a voice instruction and you generate a complete, appropriate message. Adapt tone to context (email = formal, message = casual). Reply only with the generated message, no explanation.`
     }
 };
@@ -74,8 +80,8 @@ router.post('/', async (req, res) => {
             ],
             stream: false,
             options: {
-                temperature: 0.3,
-                top_p: 0.9,
+                temperature: 0.1,
+                top_p: 0.85,
                 num_predict: 1024
             }
         };
@@ -101,9 +107,19 @@ router.post('/', async (req, res) => {
 
         res.json({ correctedText: corrected.trim(), model });
     } catch (err) {
-        console.error('[CORRECT ERROR]', err.message);
-        // Fallback: return original text if Ollama fails
-        res.status(500).json({ error: err.message, correctedText: req.body.text });
+        // Build a user-friendly error message
+        let userError = err.message;
+        if (err.code === 'ECONNREFUSED' || err.message?.includes('ECONNREFUSED')) {
+            userError = `Ollama injoignable sur ${process.env.OLLAMA_URL || 'http://localhost:11434'} — vérifiez qu'Ollama est lancé`;
+        } else if (err.type === 'request-timeout' || err.message?.includes('timeout')) {
+            userError = `Ollama timeout (60s) — le modèle est peut-être trop lourd`;
+        } else if (err.message?.includes('404') || err.message?.includes('model')) {
+            userError = `Modèle IA introuvable — vérifiez le nom du modèle dans les paramètres`;
+        }
+
+        console.error('[CORRECT ERROR]', userError);
+        // Graceful fallback: return original text so dictation still works
+        res.status(500).json({ error: userError, correctedText: req.body.text });
     }
 });
 

@@ -19,4 +19,5 @@ contextBridge.exposeInMainWorld('voixify', {
     // Events from main → renderer
     onStateChange: (cb) => ipcRenderer.on('state-change', (_, s) => cb(s)),
     onStopRecording: (cb) => ipcRenderer.on('stop-recording', () => cb()),
+    onSettingsChanged: (cb) => ipcRenderer.on('settings-changed', (_, settings) => cb(settings)),
 });

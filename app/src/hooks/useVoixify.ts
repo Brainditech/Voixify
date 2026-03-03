@@ -28,7 +28,6 @@ export function useVoixify() {
 
         try {
             const { blob, duration } = await stop();
-            console.log(`[RECORDER] Stopped. Duration: ${duration}ms, Size: ${blob.size} bytes`);
 
             if (!api) {
                 console.error('[RECORDER] IPC bridge not available');
@@ -45,53 +44,66 @@ export function useVoixify() {
                 reader.readAsDataURL(blob);
             });
 
-            console.log(`[API] Sending ${base64data.length} chars to main process...`);
-
-            // Read settings from store
-            const { lang, deepgramModel, transcriptionSource } = useVoixifyStore.getState();
+            // ─── Read ALL settings from Zustand store (persisted, single source of truth) ───
+            const {
+                lang,
+                deepgramModel,
+                transcriptionSource,
+                llmCorrectionEnabled,
+                correctionLevel,
+                ollamaModel,
+            } = useVoixifyStore.getState();
 
             // Timeout wrapper so the UI never gets permanently stuck in 'processing'
             const result = await Promise.race([
-                api.processAudio({ audioBase64: base64data, lang, deepgramModel, transcriptionSource, duration }),
+                api.processAudio({
+                    audioBase64: base64data,
+                    lang,
+                    deepgramModel,
+                    transcriptionSource,
+                    duration,
+                }),
                 new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('processAudio timeout')), PROCESS_TIMEOUT_MS)
+                    setTimeout(() => reject(new Error('Transcription timeout (30s) — vérifiez votre connexion')), PROCESS_TIMEOUT_MS)
                 ),
             ]);
 
             if (result.success && result.transcript) {
-                console.log('[API] STT Success:', result.transcript);
                 let finalTranscript = result.transcript;
 
-                // Sync with mainSettings to ensure we have the absolute latest UI choices
-                const settings = await api.getSettings();
-
-                if (settings.llmCorrectionEnabled && settings.correctionLevel !== 'off') {
+                // ─── AI correction (using Zustand store settings, NOT mainSettings) ───
+                if (llmCorrectionEnabled && correctionLevel !== 'off') {
                     setRecordingState('correcting');
-                    console.log(`[API] Triggering LLM Correction (${settings.ollamaModel}, level: ${settings.correctionLevel})...`);
+
                     try {
-                        // Use the mapped ollamaUrl or fallback to proxy backend for the /api/correct route
                         const res = await fetch('http://127.0.0.1:3001/api/correct', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 text: finalTranscript,
-                                lang: settings.lang,
-                                model: settings.ollamaModel,
-                                level: settings.correctionLevel
-                            })
+                                lang,
+                                model: ollamaModel,
+                                level: correctionLevel,
+                            }),
                         });
 
                         if (res.ok) {
                             const data = await res.json();
                             if (data.correctedText) {
                                 finalTranscript = data.correctedText;
-                                console.log('[API] LLM Success:', finalTranscript);
                             }
                         } else {
-                            console.error('[API] LLM Route failed', await res.text());
+                            const errText = await res.text().catch(() => '');
+                            console.error('[API] Correction failed:', res.status, errText.substring(0, 200));
                         }
                     } catch (err: any) {
-                        console.error('[API] LLM Correction error:', err.message);
+                        // Network error = Ollama or backend unreachable
+                        if (err.message?.includes('fetch') || err.message?.includes('ECONNREFUSED') || err.name === 'TypeError') {
+                            console.error('[API] Correction service unreachable — using raw transcription');
+                        } else {
+                            console.error('[API] Correction error:', err.message);
+                        }
+                        // Continue with uncorrected text — don't fail the whole flow
                     }
                 }
 
@@ -101,17 +113,25 @@ export function useVoixify() {
                     rawText: result.transcript,
                     correctedText: finalTranscript,
                     audioPath: result.audioPath,
-                    lang: settings.lang || lang,
+                    lang,
                     mode: 'dictate',
                     duration,
                 });
                 api.pasteText(finalTranscript);
             } else {
-                console.error('[API] Failed:', result.error);
+                // Transcription failed — log error and hide
+                console.error('[API] Transcription failed:', result.error);
                 api.hideWindow();
             }
         } catch (err: any) {
-            console.error('[RECORDER] Stop error:', err.message);
+            // Handle specific error types for better diagnostics
+            if (err.message?.includes('timeout')) {
+                console.error('[RECORDER] Transcription timed out — API may be slow or unreachable');
+            } else if (err.message?.includes('ECONNREFUSED')) {
+                console.error('[RECORDER] Cannot connect to API — is the backend running?');
+            } else {
+                console.error('[RECORDER] Stop error:', err.message);
+            }
             api?.hideWindow();
         } finally {
             processingRef.current = false;

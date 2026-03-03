@@ -134,8 +134,14 @@ router.post('/', upload.single('audio'), handleMulterError, async (req, res) => 
         res.json({ transcript, language: detectedLang });
 
     } catch (err) {
-        console.error('[TRANSCRIBE ERROR]', err.message);
-        res.status(500).json({ error: err.message });
+        let userError = err.message;
+        if (err.code === 'ECONNREFUSED' || err.message?.includes('ECONNREFUSED')) {
+            userError = `Whisper injoignable — vérifiez que le conteneur Docker est lancé`;
+        } else if (err.type === 'request-timeout' || err.message?.includes('timeout')) {
+            userError = `Whisper timeout (60s) — le modèle est peut-être surchargé`;
+        }
+        console.error('[TRANSCRIBE ERROR]', userError);
+        res.status(500).json({ error: userError });
     }
 });
 

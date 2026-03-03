@@ -28,10 +28,20 @@ function Pill() {
 
         api.rendererReady();
 
-        // Sync stored hotkey → main process so the registered shortcut always
-        // matches what the user last configured (survives app restarts)
-        const { hotkey } = useVoixifyStore.getState();
-        api.updateHotkey(hotkey).catch(() => { });
+        // Sync ALL persisted settings from Zustand store → main process on startup.
+        // This ensures mainSettings in electron.cjs matches the user's saved preferences,
+        // not the hardcoded defaults (which would reset on every app launch).
+        const state = useVoixifyStore.getState();
+        api.updateSettings({
+            transcriptionSource: state.transcriptionSource,
+            lang: state.lang,
+            deepgramModel: state.deepgramModel,
+            correctionLevel: state.correctionLevel,
+            llmCorrectionEnabled: state.llmCorrectionEnabled,
+            autopasteEnabled: state.autopasteEnabled,
+            ollamaModel: state.ollamaModel,
+        }).catch(() => { });
+        api.updateHotkey(state.hotkey).catch(() => { });
 
         api.onStateChange((s: string) => {
             setRecordingState(s as any);
@@ -41,6 +51,19 @@ function Pill() {
         api.onStopRecording(() => {
             setRecordingState('processing');
             Promise.resolve(stopRef.current()).finally(() => setRecordingState('idle'));
+        });
+
+        // Listen for settings changes from the Settings window (separate BrowserWindow).
+        // This bridges the isolated localStorage gap between the two Electron renderers.
+        api.onSettingsChanged?.((settings: any) => {
+            const store = useVoixifyStore.getState();
+            if (settings.lang !== undefined) store.setLang(settings.lang);
+            if (settings.transcriptionSource !== undefined) store.setTranscriptionSource(settings.transcriptionSource);
+            if (settings.deepgramModel !== undefined) store.setDeepgramModel(settings.deepgramModel);
+            if (settings.correctionLevel !== undefined) store.setCorrectionLevel(settings.correctionLevel);
+            if (settings.llmCorrectionEnabled !== undefined) store.setLlmCorrectionEnabled(settings.llmCorrectionEnabled);
+            if (settings.autopasteEnabled !== undefined) store.setAutopasteEnabled(settings.autopasteEnabled);
+            if (settings.ollamaModel !== undefined) store.setOllamaModel(settings.ollamaModel);
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);

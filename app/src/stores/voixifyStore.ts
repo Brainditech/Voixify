@@ -72,6 +72,7 @@ interface VoixifyState {
     setServiceStatus: (s: Partial<ServiceStatus>) => void;
     setAvailableModels: (m: string[]) => void;
     addToHistory: (item: HistoryItem) => void;
+    deleteHistoryItem: (id: string) => void;
     clearHistory: () => void;
     reset: () => void;
 }
@@ -94,8 +95,8 @@ export const useVoixifyStore = create<VoixifyState>()(
             transcriptionSource: 'deepgram',
             autopasteEnabled: true,
             llmCorrectionEnabled: false,
-            whisperUrl: 'http://localhost:8000',   // Direct Whisper Docker
-            ollamaUrl: 'http://localhost:11434',   // Direct Ollama
+            whisperUrl: 'http://localhost:8000',
+            ollamaUrl: 'http://localhost:11434',
 
             showSettings: false,
             showHistory: false,
@@ -124,6 +125,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             setServiceStatus: (s) => set((st) => ({ serviceStatus: { ...st.serviceStatus, ...s } })),
             setAvailableModels: (m) => set({ availableModels: m }),
             addToHistory: (item) => set((st) => ({ history: [item, ...st.history].slice(0, 100) })),
+            deleteHistoryItem: (id) => set((st) => ({ history: st.history.filter(h => h.id !== id) })),
             clearHistory: () => set({ history: [] }),
             reset: () => set({ recordingState: 'idle', rawTranscript: '', correctedText: '', errorMessage: null, toastMessage: null }),
         }),
@@ -151,7 +153,8 @@ export const useVoixifyStore = create<VoixifyState>()(
             partialize: (s) => ({
                 lang: s.lang, mode: s.mode, correctionLevel: s.correctionLevel,
                 hotkey: s.hotkey, ollamaModel: s.ollamaModel, deepgramModel: s.deepgramModel,
-                transcriptionSource: s.transcriptionSource, autopasteEnabled: s.autopasteEnabled, whisperUrl: s.whisperUrl,
+                transcriptionSource: s.transcriptionSource, autopasteEnabled: s.autopasteEnabled,
+                llmCorrectionEnabled: s.llmCorrectionEnabled, whisperUrl: s.whisperUrl,
                 ollamaUrl: s.ollamaUrl, history: s.history,
             }),
         }

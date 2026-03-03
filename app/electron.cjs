@@ -9,6 +9,10 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 
+// ─── Suppress Chromium GPU-cache warnings ────────────────────
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+app.commandLine.appendSwitch('disable-gpu-cache');
+
 // ─── Load .env from project root ─────────────────────────────
 const envPaths = [
     path.resolve(__dirname, '..', '..', '.env'),   // dev: project root
@@ -17,8 +21,7 @@ const envPaths = [
 ];
 for (const envPath of envPaths) {
     if (fs.existsSync(envPath)) {
-        require('dotenv').config({ path: envPath });
-        console.log(`[ENV] Loaded: ${envPath}`);
+        require('dotenv').config({ path: envPath, quiet: true });
         break;
     }
 }
@@ -27,8 +30,8 @@ for (const envPath of envPaths) {
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const PILL_W = 180;
 const PILL_H = 56;
-const SETTINGS_W = 500;
-const SETTINGS_H = 580;
+const SETTINGS_W = 820;
+const SETTINGS_H = 660;
 
 // App icon path — used for tray and settings window
 const ICON_PATH = path.join(__dirname, 'assets', 'icon.png');
@@ -90,7 +93,7 @@ function getAppIcon() {
         return nativeImage.createFromPath(ICON_PATH);
     }
     // Fallback: tiny transparent 1×1 placeholder
-    console.warn('[ICON] icon.png not found, using placeholder');
+
     return nativeImage.createEmpty();
 }
 
@@ -162,7 +165,7 @@ function showPill() {
     mainWindow.setBounds({ width: PILL_W, height: PILL_H, ...pos });
     mainWindow.showInactive();
     safeSend('state-change', 'recording');
-    console.log('[PILL] Shown — recording');
+
 }
 
 // ─── Stop recording and hide ─────────────────────────────────
@@ -170,7 +173,7 @@ function triggerStop() {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     safeSend('state-change', 'processing');
     safeSend('stop-recording');
-    console.log('[PILL] Stop triggered');
+
 }
 
 // ─── Hotkey registration — hold-to-talk mode ─────────────────
@@ -207,7 +210,7 @@ function registerHotkey(key) {
         }, timeout);
     });
 
-    console.log(`[HOTKEY] Registered: ${key} (hold-to-talk)`);
+
 }
 
 // ─── Tray ─────────────────────────────────────────────────────
@@ -272,7 +275,7 @@ async function callDeepgram(audioBuffer, language, model = 'nova-3') {
     }
 
     const url = `https://api.deepgram.com/v1/listen?model=${model}&language=${language}&smart_format=true`;
-    console.log(`[DEEPGRAM] Using model: ${model}, lang: ${language}`);
+
     const res = await httpPost(url, {
         'Authorization': `Token ${DEEPGRAM_KEY}`,
         'Content-Type': 'audio/webm;codecs=opus',
@@ -288,8 +291,6 @@ async function callDeepgram(audioBuffer, language, model = 'nova-3') {
 
     const alt = data?.results?.channels?.[0]?.alternatives?.[0];
     const transcript = alt?.transcript || '';
-    console.log('[DEEPGRAM] duration:', data?.metadata?.duration, 's | confidence:', alt?.confidence, '| chars:', transcript.length);
-    if (!transcript) console.log('[DEEPGRAM] Empty response:', JSON.stringify(data).substring(0, 300));
     return transcript;
 }
 
@@ -299,7 +300,7 @@ ipcMain.handle('renderer-ready', () => {
     if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
         mainWindow.hide();
     }
-    console.log('[MAIN] Renderer ready');
+
 });
 
 // ─── Whisper local (via backend proxy) ───────────────────────
@@ -359,38 +360,56 @@ function callWhisperLocal(audioBuffer, language) {
     });
 }
 
-ipcMain.handle('process-audio', async (_, { audioBase64, duration }) => {
+ipcMain.handle('process-audio', async (_, { audioBase64, duration, lang, deepgramModel, transcriptionSource }) => {
     if (processingAudio) {
-        console.log('[PROCESS] Skipping — already processing');
-        return { success: false, error: 'Already processing' };
+        return { success: false, error: 'Déjà en cours de traitement' };
     }
     processingAudio = true;
 
-    // Use mainSettings as single source of truth — not the renderer payload.
-    // This avoids the multi-window Zustand isolation problem.
-    const { transcriptionSource, lang, deepgramModel } = mainSettings;
+    // Use values from the renderer payload (Zustand store = persisted source of truth).
+    // Fall back to mainSettings only if payload is missing values (legacy compat).
+    const src = transcriptionSource || mainSettings.transcriptionSource;
+    const language = lang || mainSettings.lang;
+    const dgModel = deepgramModel || mainSettings.deepgramModel;
 
     try {
-        console.log(`[PROCESS] Source: ${transcriptionSource} | Lang: ${lang} | Duration: ${duration}ms`);
-
         const raw = Buffer.from(audioBase64, 'base64');
-        console.log('[PROCESS] Raw buffer:', raw.length, 'bytes, first 8:', raw.slice(0, 8).toString('hex'));
 
         const webmBuffer = fixWebmBuffer(raw);
         if (!webmBuffer) {
-            console.error('[PROCESS] No EBML header found, size:', raw.length);
             return { success: false, error: 'Audio invalide (trop court ou corrompu)' };
         }
 
         let transcript;
-        if (transcriptionSource === 'whisper') {
-            console.log(`[PROCESS] Routing to Whisper local (${webmBuffer.length} bytes)`);
-            transcript = await callWhisperLocal(webmBuffer, lang);
+        if (src === 'whisper') {
+            try {
+                transcript = await callWhisperLocal(webmBuffer, language);
+            } catch (err) {
+                if (err.message?.includes('ECONNREFUSED')) {
+                    return { success: false, error: 'Whisper local injoignable — vérifiez que le backend Docker est lancé' };
+                }
+                if (err.message?.includes('timeout')) {
+                    return { success: false, error: 'Whisper local timeout (60s) — le modèle est peut-être surchargé' };
+                }
+                return { success: false, error: `Whisper: ${err.message}` };
+            }
         } else {
-            console.log(`[PROCESS] Routing to Deepgram ${deepgramModel} (${webmBuffer.length} bytes)`);
-            transcript = await callDeepgram(webmBuffer, lang, deepgramModel);
+            try {
+                transcript = await callDeepgram(webmBuffer, language, dgModel);
+            } catch (err) {
+                if (err.message?.includes('DEEPGRAM_KEY')) {
+                    return { success: false, error: 'Clé API Deepgram manquante — ajoutez DEEPGRAM_KEY dans .env' };
+                }
+                if (err.message?.includes('401') || err.message?.includes('403')) {
+                    return { success: false, error: 'Clé API Deepgram invalide ou expirée' };
+                }
+                if (err.message?.includes('ENOTFOUND') || err.message?.includes('ECONNREFUSED')) {
+                    return { success: false, error: 'Deepgram injoignable — vérifiez votre connexion internet' };
+                }
+                return { success: false, error: `Deepgram: ${err.message}` };
+            }
         }
-        console.log('[PROCESS] Transcript:', transcript.substring(0, 100));
+
         if (!transcript.trim()) return { success: false, error: 'Aucun texte capté' };
 
         return { success: true, transcript };
@@ -405,7 +424,7 @@ ipcMain.handle('process-audio', async (_, { audioBase64, duration }) => {
 ipcMain.handle('recording-ended', () => {
     isRecordingActive = false;
     processingAudio = false;
-    console.log('[MAIN] Recording cycle ended — state reset');
+
 });
 
 // ─── Settings sync ────────────────────────────────────────────
@@ -415,7 +434,11 @@ ipcMain.handle('recording-ended', () => {
 // last changed a value.
 ipcMain.handle('update-settings', (_, partial) => {
     Object.assign(mainSettings, partial);
-    console.log('[SETTINGS] Updated:', JSON.stringify(partial));
+
+    // Broadcast to the Pill window so its Zustand store stays in sync.
+    // (Settings window and Pill window have separate localStorage/Zustand stores)
+    safeSend('settings-changed', { ...mainSettings });
+
     return true;
 });
 
@@ -445,7 +468,7 @@ ipcMain.handle('paste-text', (_, text) => {
 ipcMain.handle('update-hotkey', (_, newKey) => {
     try {
         registerHotkey(newKey);
-        console.log('[SETTINGS] Hotkey updated to:', newKey);
+
         return { success: true };
     } catch (e) {
         console.error('[SETTINGS] Invalid hotkey:', e.message);
@@ -464,7 +487,7 @@ app.whenReady().then(() => {
     createWindow();
     createTray();
     registerHotkey('CommandOrControl+Space');
-    console.log('🎙 Voixify ready — hold Ctrl+Space to dictate');
+
 });
 
 app.on('window-all-closed', () => {
