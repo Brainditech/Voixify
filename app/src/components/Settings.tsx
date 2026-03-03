@@ -145,7 +145,7 @@ export default function Settings() {
                     </button>
 
                     <div className="sidebar-spacer" />
-                    <div className="settings-version">Voixify v2.0</div>
+                    <div className="settings-version">Voixify v2.0 — Brainditech</div>
                 </nav>
 
                 {/* ─── Content ─── */}

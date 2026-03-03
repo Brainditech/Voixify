@@ -6,23 +6,39 @@ app/dist/
 app/dist-electron/
 backend/dist/
 
-# Environment (contains secrets)
+# Environment (contains API keys and secrets)
 .env
+.env.local
+.env.*.local
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
 # OS
 Thumbs.db
 .DS_Store
+Desktop.ini
 
 # Logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Recordings (user data)
+# Recordings (user data — never commit)
 recordings/
 
 # Temp files
 *.vbs
+
+# Electron cache / crash reports
+crash-reports/
+
+# Internal notes (not for public repo)
+debrief.md
+task.md.resolved
+.claude/

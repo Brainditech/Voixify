@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(powershell -Command \"Format-Hex ''C:\\\\Users\\\\Zeltys\\\\AppData\\\\Local\\\\Temp\\\\voixify-in-1772534386946.webm'' | Select-Object -First 2\")"
-    ]
-  }
-}
