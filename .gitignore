@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+app/dist/
+app/dist-electron/
+backend/dist/
+
+# Environment (contains secrets)
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Recordings (user data)
+recordings/
+
+# Temp files
+*.vbs
