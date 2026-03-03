@@ -52,7 +52,5 @@ const rawWhisperUrl = process.env.WHISPER_URL || 'http://localhost:8000';
 process.env.WHISPER_URL = rawWhisperUrl.replace(/\/transcribe\/?$/, '');
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🎙️  Voixify Backend running on port ${PORT}`);
-  console.log(`📡 Whisper API: ${process.env.WHISPER_URL}/transcribe`);
-  console.log(`🤖 Ollama: ${process.env.OLLAMA_URL || '(default)'} (${process.env.OLLAMA_MODEL || '(default)'})\n`);
+  console.log(`Voixify Backend ready on :${PORT}`);
 });

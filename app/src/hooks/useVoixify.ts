@@ -28,7 +28,7 @@ export function useVoixify() {
 
         try {
             const { blob, duration } = await stop();
-            console.log(`[RECORDER] Stopped. Duration: ${duration}ms, Size: ${blob.size} bytes`);
+
 
             if (!api) {
                 console.error('[RECORDER] IPC bridge not available');
@@ -45,7 +45,7 @@ export function useVoixify() {
                 reader.readAsDataURL(blob);
             });
 
-            console.log(`[API] Sending ${base64data.length} chars to main process...`);
+
 
             // Read settings from store
             const { lang, deepgramModel, transcriptionSource } = useVoixifyStore.getState();
@@ -59,7 +59,7 @@ export function useVoixify() {
             ]);
 
             if (result.success && result.transcript) {
-                console.log('[API] STT Success:', result.transcript);
+
                 let finalTranscript = result.transcript;
 
                 // Sync with mainSettings to ensure we have the absolute latest UI choices
@@ -67,7 +67,7 @@ export function useVoixify() {
 
                 if (settings.llmCorrectionEnabled && settings.correctionLevel !== 'off') {
                     setRecordingState('correcting');
-                    console.log(`[API] Triggering LLM Correction (${settings.ollamaModel}, level: ${settings.correctionLevel})...`);
+
                     try {
                         // Use the mapped ollamaUrl or fallback to proxy backend for the /api/correct route
                         const res = await fetch('http://127.0.0.1:3001/api/correct', {
@@ -85,7 +85,7 @@ export function useVoixify() {
                             const data = await res.json();
                             if (data.correctedText) {
                                 finalTranscript = data.correctedText;
-                                console.log('[API] LLM Success:', finalTranscript);
+
                             }
                         } else {
                             console.error('[API] LLM Route failed', await res.text());
