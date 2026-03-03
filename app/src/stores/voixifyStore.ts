@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type RecordingState = 'idle' | 'recording' | 'processing' | 'done' | 'error';
+export type RecordingState = 'idle' | 'recording' | 'processing' | 'correcting' | 'done' | 'error';
 export type CorrectionLevel = 'off' | 'minimal' | 'standard' | 'advanced';
 export type AppMode = 'dictate' | 'ask';
 export type Lang = 'fr' | 'en';
@@ -39,6 +39,7 @@ interface VoixifyState {
     deepgramModel: string;
     transcriptionSource: TranscriptionSource;
     autopasteEnabled: boolean;
+    llmCorrectionEnabled: boolean;
     // Direct API endpoints (no backend proxy needed)
     whisperUrl: string;
     ollamaUrl: string;
@@ -63,6 +64,7 @@ interface VoixifyState {
     setDeepgramModel: (m: string) => void;
     setTranscriptionSource: (s: TranscriptionSource) => void;
     setAutopasteEnabled: (v: boolean) => void;
+    setLlmCorrectionEnabled: (v: boolean) => void;
     setWhisperUrl: (u: string) => void;
     setOllamaUrl: (u: string) => void;
     setShowSettings: (v: boolean) => void;
@@ -91,6 +93,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             deepgramModel: 'nova-3',
             transcriptionSource: 'deepgram',
             autopasteEnabled: true,
+            llmCorrectionEnabled: false,
             whisperUrl: 'http://localhost:8000',   // Direct Whisper Docker
             ollamaUrl: 'http://localhost:11434',   // Direct Ollama
 
@@ -113,6 +116,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             setDeepgramModel: (m) => set({ deepgramModel: m }),
             setTranscriptionSource: (s) => set({ transcriptionSource: s }),
             setAutopasteEnabled: (v) => set({ autopasteEnabled: v }),
+            setLlmCorrectionEnabled: (v) => set({ llmCorrectionEnabled: v }),
             setWhisperUrl: (u) => set({ whisperUrl: u }),
             setOllamaUrl: (u) => set({ ollamaUrl: u }),
             setShowSettings: (v) => set({ showSettings: v }),
@@ -124,19 +128,25 @@ export const useVoixifyStore = create<VoixifyState>()(
             reset: () => set({ recordingState: 'idle', rawTranscript: '', correctedText: '', errorMessage: null, toastMessage: null }),
         }),
         {
-            name: 'voixify-v3',
-            version: 2,
+            name: 'voixify-v4',
+            version: 3,
             migrate: (persistedState: any, version: number) => {
-                // v0/v1 → v2: add missing fields that were introduced after first persist
+                let state = persistedState;
                 if (version < 2) {
-                    return {
-                        ...persistedState,
-                        hotkey: persistedState?.hotkey || 'CommandOrControl+Space',
-                        deepgramModel: persistedState?.deepgramModel || 'nova-3',
-                        transcriptionSource: persistedState?.transcriptionSource || 'deepgram',
+                    state = {
+                        ...state,
+                        hotkey: state?.hotkey || 'CommandOrControl+Space',
+                        deepgramModel: state?.deepgramModel || 'nova-3',
+                        transcriptionSource: state?.transcriptionSource || 'deepgram',
                     };
                 }
-                return persistedState;
+                if (version < 3) {
+                    state = {
+                        ...state,
+                        llmCorrectionEnabled: state?.llmCorrectionEnabled || false,
+                    };
+                }
+                return state;
             },
             partialize: (s) => ({
                 lang: s.lang, mode: s.mode, correctionLevel: s.correctionLevel,

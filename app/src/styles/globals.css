@@ -154,6 +154,60 @@ body,
 
 @keyframes pulse {
   0% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+
+  100% {
+    transform: scale(1.4);
+    opacity: 1;
+  }
+}
+
+/* Correcting = yellow/gold pulse dots */
+.pill.correcting .bar {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fcd34d;
+  /* Golden yellow */
+  animation: pulse 0.8s ease-in-out infinite alternate;
+}
+
+.pill.correcting .bar:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.pill.correcting .bar:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.pill.correcting .bar:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+.pill.correcting .bar:nth-child(4) {
+  animation-delay: 0.36s;
+}
+
+.pill.correcting .bar:nth-child(5) {
+  animation-delay: 0.48s;
+}
+
+.pill.processing .bar:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+.pill.processing .bar:nth-child(4) {
+  animation-delay: 0.36s;
+}
+
+.pill.processing .bar:nth-child(5) {
+  animation-delay: 0.48s;
+}
+
+@keyframes pulse {
+  0% {
     opacity: 0.3;
     transform: scale(0.7);
   }

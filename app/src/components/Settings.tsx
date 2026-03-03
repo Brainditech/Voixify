@@ -42,6 +42,7 @@ export default function Settings() {
         whisperUrl, setWhisperUrl,
         ollamaUrl, setOllamaUrl,
         autopasteEnabled, setAutopasteEnabled,
+        llmCorrectionEnabled, setLlmCorrectionEnabled,
         availableModels, setAvailableModels,
     } = useVoixifyStore();
 
@@ -58,6 +59,7 @@ export default function Settings() {
                     lang,
                     deepgramModel,
                     correctionLevel,
+                    llmCorrectionEnabled,
                     autopasteEnabled,
                 });
             } catch { }
@@ -198,38 +200,54 @@ export default function Settings() {
 
                 {/* Correction IA */}
                 <section className="settings-section">
-                    <h2 className="settings-section-title">Correction IA</h2>
-                    <div className="correction-grid">
-                        {CORRECTION_OPTIONS.map(opt => (
-                            <button
-                                key={opt.value}
-                                className={`correction-btn ${correctionLevel === opt.value ? 'active' : ''}`}
-                                onClick={() => setCorrectionLevel(opt.value as any)}
-                            >
-                                <span className="correction-label">{opt.label}</span>
-                                <span className="correction-desc">{opt.desc}</span>
-                            </button>
-                        ))}
+                    <div className="settings-row">
+                        <div>
+                            <h2 className="settings-section-title" style={{ marginBottom: 0 }}>Correction IA</h2>
+                            <p className="settings-hint" style={{ marginTop: 2 }}>Améliore et corrige le texte avant collage</p>
+                        </div>
+                        <button
+                            className={`toggle ${llmCorrectionEnabled ? 'on' : 'off'}`}
+                            onClick={() => setSetting('llmCorrectionEnabled', !llmCorrectionEnabled, setLlmCorrectionEnabled)}
+                        >
+                            <span className="toggle-thumb" />
+                        </button>
                     </div>
+
+                    {llmCorrectionEnabled && (
+                        <div className="correction-grid" style={{ marginTop: '1rem' }}>
+                            {CORRECTION_OPTIONS.map(opt => (
+                                <button
+                                    key={opt.value}
+                                    className={`correction-btn ${correctionLevel === opt.value ? 'active' : ''}`}
+                                    onClick={() => setSetting('correctionLevel', opt.value as any, setCorrectionLevel)}
+                                >
+                                    <span className="correction-label">{opt.label}</span>
+                                    <span className="correction-desc">{opt.desc}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </section>
 
                 {/* Modèle Ollama */}
-                <section className="settings-section">
-                    <h2 className="settings-section-title">
-                        Modèle IA locale (Ollama)
-                        {modelsLoading && <span className="settings-badge">chargement…</span>}
-                    </h2>
-                    <select
-                        className="settings-select"
-                        value={ollamaModel}
-                        onChange={e => setOllamaModel(e.target.value)}
-                    >
-                        {ollamaModels.map(m => (
-                            <option key={m} value={m}>{m}</option>
-                        ))}
-                    </select>
-                    <p className="settings-hint">Modèle Ollama local pour la correction</p>
-                </section>
+                {llmCorrectionEnabled && (
+                    <section className="settings-section">
+                        <h2 className="settings-section-title">
+                            Modèle IA locale (Ollama)
+                            {modelsLoading && <span className="settings-badge">chargement…</span>}
+                        </h2>
+                        <select
+                            className="settings-select"
+                            value={ollamaModel}
+                            onChange={e => setOllamaModel(e.target.value)}
+                        >
+                            {ollamaModels.map(m => (
+                                <option key={m} value={m}>{m}</option>
+                            ))}
+                        </select>
+                        <p className="settings-hint">Modèle Ollama local pour la correction</p>
+                    </section>
+                )}
 
                 {/* Collage automatique */}
                 <section className="settings-section">
