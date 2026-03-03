@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './styles/globals.css';
 import { useVoixify } from './hooks/useVoixify';
+import { useVoixifyStore } from './stores/voixifyStore';
 import Settings from './components/Settings';
 
 // Hash-based routing: #/settings → Settings window, anything else → Pill
@@ -25,6 +26,11 @@ function Pill() {
         if (!api) return;
 
         api.rendererReady();
+
+        // Sync stored hotkey → main process so the registered shortcut always
+        // matches what the user last configured (survives app restarts)
+        const { hotkey } = useVoixifyStore.getState();
+        api.updateHotkey(hotkey).catch(() => { });
 
         api.onStateChange((s: string) => {
             setState(s as any);
