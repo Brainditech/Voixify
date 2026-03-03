@@ -83,7 +83,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             lang: 'fr',
             mode: 'dictate',
             correctionLevel: 'standard',
-            hotkey: 'Alt+Space',
+            hotkey: 'CommandOrControl+Space',
             ollamaModel: 'kimi-k2.5:cloud',
             deepgramModel: 'nova-3',
             autopasteEnabled: true,
