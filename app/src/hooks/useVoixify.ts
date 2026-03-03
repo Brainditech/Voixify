@@ -46,12 +46,12 @@ export function useVoixify() {
 
             console.log(`[API] Sending ${base64data.length} chars to main process...`);
 
-            // Read language from the store instead of hardcoding 'fr'
-            const lang = useVoixifyStore.getState().lang;
+            // Read settings from store
+            const { lang, deepgramModel } = useVoixifyStore.getState();
 
             // Timeout wrapper so the UI never gets permanently stuck in 'processing'
             const result = await Promise.race([
-                api.processAudio({ audioBase64: base64data, lang, duration }),
+                api.processAudio({ audioBase64: base64data, lang, deepgramModel, duration }),
                 new Promise<never>((_, reject) =>
                     setTimeout(() => reject(new Error('processAudio timeout')), PROCESS_TIMEOUT_MS)
                 ),

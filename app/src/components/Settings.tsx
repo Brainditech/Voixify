@@ -15,6 +15,15 @@ const LANG_OPTIONS = [
     { label: '🇬🇧  English', value: 'en' },
 ];
 
+// Deepgram models — grouped by language support
+const DEEPGRAM_MODELS = [
+    { value: 'nova-3', label: 'Nova-3', desc: '⭐ Meilleur — FR + EN + multi', recommended: true },
+    { value: 'nova-2', label: 'Nova-2', desc: 'Rapide — FR + EN' },
+    { value: 'nova-2-general', label: 'Nova-2 General', desc: 'Généraliste multi-langue' },
+    { value: 'enhanced', label: 'Enhanced', desc: 'Équilibré — EN optimisé' },
+    { value: 'base', label: 'Base', desc: 'Économique — EN uniquement' },
+];
+
 const CORRECTION_OPTIONS = [
     { label: 'Désactivée', value: 'off', desc: "Texte brut sans modification" },
     { label: 'Minimale', value: 'minimal', desc: "Ponctuation + mots de remplissage" },
@@ -28,6 +37,7 @@ export default function Settings() {
         hotkey, setHotkey,
         correctionLevel, setCorrectionLevel,
         ollamaModel, setOllamaModel,
+        deepgramModel, setDeepgramModel,
         whisperUrl, setWhisperUrl,
         ollamaUrl, setOllamaUrl,
         autopasteEnabled, setAutopasteEnabled,
@@ -37,23 +47,19 @@ export default function Settings() {
     const [hotkeyStatus, setHotkeyStatus] = useState<'idle' | 'ok' | 'error'>('idle');
     const [modelsLoading, setModelsLoading] = useState(false);
 
-    // Load available Ollama models on mount
-    useEffect(() => {
-        fetchModels();
-    }, [ollamaUrl]);
+    useEffect(() => { fetchOllamaModels(); }, [ollamaUrl]);
 
-    async function fetchModels() {
+    async function fetchOllamaModels() {
         setModelsLoading(true);
         try {
-            const port = process.env.NODE_ENV === 'development' ? '3001' : '3001';
-            const res = await fetch(`http://localhost:${port}/api/models`);
+            const res = await fetch(`http://localhost:3001/api/models`);
             if (res.ok) {
                 const data = await res.json();
                 const names = (data.models || []).map((m: any) => m.name || m);
-                setAvailableModels(names);
+                if (names.length > 0) setAvailableModels(names);
             }
         } catch {
-            // Backend not running or Ollama unreachable — keep existing list
+            // Backend not running — keep existing list
         } finally {
             setModelsLoading(false);
         }
@@ -66,9 +72,7 @@ export default function Settings() {
         setTimeout(() => setHotkeyStatus('idle'), 2000);
     }
 
-    const models = availableModels.length > 0
-        ? availableModels
-        : [ollamaModel];
+    const ollamaModels = availableModels.length > 0 ? availableModels : [ollamaModel];
 
     return (
         <div className="settings">
@@ -78,7 +82,7 @@ export default function Settings() {
                     <div className="settings-logo">🎙</div>
                     <div>
                         <h1 className="settings-title">Voixify</h1>
-                        <p className="settings-subtitle">Dictée vocale IA</p>
+                        <p className="settings-subtitle">Paramètres</p>
                     </div>
                 </div>
                 <button className="settings-close" onClick={() => api?.closeSettings()}>✕</button>
@@ -102,6 +106,27 @@ export default function Settings() {
                     </div>
                 </section>
 
+                {/* Modèle Deepgram */}
+                <section className="settings-section">
+                    <h2 className="settings-section-title">Modèle de transcription ☁️</h2>
+                    <div className="model-grid">
+                        {DEEPGRAM_MODELS.map(m => (
+                            <button
+                                key={m.value}
+                                className={`model-btn ${deepgramModel === m.value ? 'active' : ''}`}
+                                onClick={() => setDeepgramModel(m.value)}
+                            >
+                                <span className="model-label">
+                                    {m.label}
+                                    {m.recommended && <span className="model-badge">recommandé</span>}
+                                </span>
+                                <span className="model-desc">{m.desc}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <p className="settings-hint">Modèle Deepgram utilisé pour la transcription vocale</p>
+                </section>
+
                 {/* Raccourci */}
                 <section className="settings-section">
                     <h2 className="settings-section-title">Raccourci clavier</h2>
@@ -118,7 +143,7 @@ export default function Settings() {
                     </div>
                     {hotkeyStatus === 'ok' && <p className="settings-hint ok">✓ Raccourci mis à jour</p>}
                     {hotkeyStatus === 'error' && <p className="settings-hint err">✗ Raccourci invalide ou déjà utilisé</p>}
-                    <p className="settings-hint">Maintenir le raccourci pour enregistrer, relâcher pour coller</p>
+                    <p className="settings-hint">Maintenir pour enregistrer, relâcher pour coller</p>
                 </section>
 
                 {/* Correction IA */}
@@ -141,7 +166,7 @@ export default function Settings() {
                 {/* Modèle Ollama */}
                 <section className="settings-section">
                     <h2 className="settings-section-title">
-                        Modèle IA
+                        Modèle IA locale (Ollama)
                         {modelsLoading && <span className="settings-badge">chargement…</span>}
                     </h2>
                     <select
@@ -149,11 +174,11 @@ export default function Settings() {
                         value={ollamaModel}
                         onChange={e => setOllamaModel(e.target.value)}
                     >
-                        {models.map(m => (
+                        {ollamaModels.map(m => (
                             <option key={m} value={m}>{m}</option>
                         ))}
                     </select>
-                    <p className="settings-hint">Modèle Ollama local utilisé pour la correction</p>
+                    <p className="settings-hint">Modèle Ollama local pour la correction</p>
                 </section>
 
                 {/* Collage automatique */}
@@ -195,7 +220,7 @@ export default function Settings() {
 
             {/* Footer */}
             <div className="settings-footer">
-                <span className="settings-version">Voixify v1.0</span>
+                <span className="settings-version">Voixify v2.0</span>
             </div>
         </div>
     );
