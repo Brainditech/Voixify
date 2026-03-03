@@ -48,12 +48,34 @@ export default function Settings() {
     const [hotkeyStatus, setHotkeyStatus] = useState<'idle' | 'ok' | 'error'>('idle');
     const [modelsLoading, setModelsLoading] = useState(false);
 
-    useEffect(() => { fetchOllamaModels(); }, [ollamaUrl]);
+    // On mount: sync main-process mainSettings → this UI + push current store → main
+    useEffect(() => {
+        async function syncWithMain() {
+            try {
+                // Push the current store values so main knows about persisted prefs
+                await api?.updateSettings({
+                    transcriptionSource,
+                    lang,
+                    deepgramModel,
+                    correctionLevel,
+                    autopasteEnabled,
+                });
+            } catch { }
+        }
+        syncWithMain();
+        fetchOllamaModels();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Helper: update local store AND notify main process
+    function setSetting<T>(key: string, value: T, setter: (v: T) => void) {
+        setter(value);
+        api?.updateSettings({ [key]: value }).catch(() => { });
+    }
 
     async function fetchOllamaModels() {
         setModelsLoading(true);
         try {
-            const res = await fetch(`http://localhost:3001/api/models`);
+            const res = await fetch(`http://127.0.0.1:3001/api/models`);
             if (res.ok) {
                 const data = await res.json();
                 const names = (data.models || []).map((m: any) => m.name || m);
@@ -74,6 +96,7 @@ export default function Settings() {
     }
 
     const ollamaModels = availableModels.length > 0 ? availableModels : [ollamaModel];
+
 
     return (
         <div className="settings">
@@ -99,7 +122,7 @@ export default function Settings() {
                             <button
                                 key={opt.value}
                                 className={`pill-btn ${lang === opt.value ? 'active' : ''}`}
-                                onClick={() => setLang(opt.value as any)}
+                                onClick={() => setSetting('lang', opt.value as any, setLang)}
                             >
                                 {opt.label}
                             </button>
@@ -113,13 +136,13 @@ export default function Settings() {
                     <div className="pill-group">
                         <button
                             className={`pill-btn ${transcriptionSource === 'deepgram' ? 'active' : ''}`}
-                            onClick={() => setTranscriptionSource('deepgram')}
+                            onClick={() => setSetting('transcriptionSource', 'deepgram', setTranscriptionSource)}
                         >
                             ☁️&nbsp; Deepgram
                         </button>
                         <button
                             className={`pill-btn ${transcriptionSource === 'whisper' ? 'active' : ''}`}
-                            onClick={() => setTranscriptionSource('whisper')}
+                            onClick={() => setSetting('transcriptionSource', 'whisper', setTranscriptionSource)}
                         >
                             🏠&nbsp; Whisper local
                         </button>
@@ -140,7 +163,7 @@ export default function Settings() {
                                 <button
                                     key={m.value}
                                     className={`model-btn ${deepgramModel === m.value ? 'active' : ''}`}
-                                    onClick={() => setDeepgramModel(m.value)}
+                                    onClick={() => setSetting('deepgramModel', m.value, setDeepgramModel)}
                                 >
                                     <span className="model-label">
                                         {m.label}

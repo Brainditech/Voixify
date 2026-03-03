@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('voixify', {
     openSettings: () => ipcRenderer.invoke('open-settings'),
     closeSettings: () => ipcRenderer.invoke('close-settings'),
     updateHotkey: (key) => ipcRenderer.invoke('update-hotkey', key),
+    updateSettings: (partial) => ipcRenderer.invoke('update-settings', partial),
+    getSettings: () => ipcRenderer.invoke('get-settings'),
 
     // Events from main → renderer
     onStateChange: (cb) => ipcRenderer.on('state-change', (_, s) => cb(s)),
