@@ -39,6 +39,17 @@ if (!DEEPGRAM_KEY) {
     console.error('[FATAL] DEEPGRAM_KEY is not set in .env — Voixify cannot transcribe without it.');
 }
 
+// ─── Main-process settings store (source of truth across windows) ───
+// When Settings window changes a value, it calls api.updateSettings({...})
+// which syncs here. This avoids the multi-renderer Zustand isolation problem.
+const mainSettings = {
+    transcriptionSource: 'deepgram',
+    lang: 'fr',
+    deepgramModel: 'nova-3',
+    correctionLevel: 'off',
+    autopasteEnabled: true,
+};
+
 // ─── WebM repair ────────────────────────────────────────────
 function fixWebmBuffer(buf) {
     const scanLimit = Math.min(buf.length - 4, 65536);
@@ -346,21 +357,22 @@ function callWhisperLocal(audioBuffer, language) {
     });
 }
 
-ipcMain.handle('process-audio', async (_, { audioBase64, lang, deepgramModel, transcriptionSource, duration }) => {
+ipcMain.handle('process-audio', async (_, { audioBase64, duration }) => {
     if (processingAudio) {
         console.log('[PROCESS] Skipping — already processing');
         return { success: false, error: 'Already processing' };
     }
     processingAudio = true;
 
+    // Use mainSettings as single source of truth — not the renderer payload.
+    // This avoids the multi-window Zustand isolation problem.
+    const { transcriptionSource, lang, deepgramModel } = mainSettings;
+
     try {
-        console.log('[PROCESS] Duration:', duration, 'ms');
+        console.log(`[PROCESS] Source: ${transcriptionSource} | Lang: ${lang} | Duration: ${duration}ms`);
 
         const raw = Buffer.from(audioBase64, 'base64');
         console.log('[PROCESS] Raw buffer:', raw.length, 'bytes, first 8:', raw.slice(0, 8).toString('hex'));
-
-        const source = transcriptionSource || 'deepgram';
-        console.log(`[PROCESS] Source: ${source}, Duration: ${duration}ms`);
 
         const webmBuffer = fixWebmBuffer(raw);
         if (!webmBuffer) {
@@ -369,12 +381,12 @@ ipcMain.handle('process-audio', async (_, { audioBase64, lang, deepgramModel, tr
         }
 
         let transcript;
-        if (source === 'whisper') {
+        if (transcriptionSource === 'whisper') {
             console.log(`[PROCESS] Routing to Whisper local (${webmBuffer.length} bytes)`);
-            transcript = await callWhisperLocal(webmBuffer, lang || 'fr');
+            transcript = await callWhisperLocal(webmBuffer, lang);
         } else {
-            console.log(`[PROCESS] Routing to Deepgram ${deepgramModel || 'nova-3'} (${webmBuffer.length} bytes)`);
-            transcript = await callDeepgram(webmBuffer, lang || 'fr', deepgramModel || 'nova-3');
+            console.log(`[PROCESS] Routing to Deepgram ${deepgramModel} (${webmBuffer.length} bytes)`);
+            transcript = await callDeepgram(webmBuffer, lang, deepgramModel);
         }
         console.log('[PROCESS] Transcript:', transcript.substring(0, 100));
         if (!transcript.trim()) return { success: false, error: 'Aucun texte capté' };
@@ -393,6 +405,19 @@ ipcMain.handle('recording-ended', () => {
     processingAudio = false;
     console.log('[MAIN] Recording cycle ended — state reset');
 });
+
+// ─── Settings sync ────────────────────────────────────────────
+// Settings window lives in a separate renderer process; we keep
+// mainSettings as the single source of truth so process-audio
+// always knows the current configuration, no matter which window
+// last changed a value.
+ipcMain.handle('update-settings', (_, partial) => {
+    Object.assign(mainSettings, partial);
+    console.log('[SETTINGS] Updated:', JSON.stringify(partial));
+    return true;
+});
+
+ipcMain.handle('get-settings', () => ({ ...mainSettings }));
 
 ipcMain.handle('hide-window', () => {
     isRecordingActive = false;
