@@ -35,6 +35,7 @@ interface VoixifyState {
     correctionLevel: CorrectionLevel;
     hotkey: string;
     ollamaModel: string;
+    deepgramModel: string;
     autopasteEnabled: boolean;
     // Direct API endpoints (no backend proxy needed)
     whisperUrl: string;
@@ -57,6 +58,7 @@ interface VoixifyState {
     setCorrectionLevel: (l: CorrectionLevel) => void;
     setHotkey: (k: string) => void;
     setOllamaModel: (m: string) => void;
+    setDeepgramModel: (m: string) => void;
     setAutopasteEnabled: (v: boolean) => void;
     setWhisperUrl: (u: string) => void;
     setOllamaUrl: (u: string) => void;
@@ -81,8 +83,9 @@ export const useVoixifyStore = create<VoixifyState>()(
             lang: 'fr',
             mode: 'dictate',
             correctionLevel: 'standard',
-            hotkey: 'Alt+Space',
+            hotkey: 'CommandOrControl+Space',
             ollamaModel: 'kimi-k2.5:cloud',
+            deepgramModel: 'nova-3',
             autopasteEnabled: true,
             whisperUrl: 'http://localhost:8000',   // Direct Whisper Docker
             ollamaUrl: 'http://localhost:11434',   // Direct Ollama
@@ -103,6 +106,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             setCorrectionLevel: (l) => set({ correctionLevel: l }),
             setHotkey: (k) => set({ hotkey: k }),
             setOllamaModel: (m) => set({ ollamaModel: m }),
+            setDeepgramModel: (m) => set({ deepgramModel: m }),
             setAutopasteEnabled: (v) => set({ autopasteEnabled: v }),
             setWhisperUrl: (u) => set({ whisperUrl: u }),
             setOllamaUrl: (u) => set({ ollamaUrl: u }),
@@ -118,8 +122,9 @@ export const useVoixifyStore = create<VoixifyState>()(
             name: 'voixify-v2',
             partialize: (s) => ({
                 lang: s.lang, mode: s.mode, correctionLevel: s.correctionLevel,
-                hotkey: s.hotkey, ollamaModel: s.ollamaModel, autopasteEnabled: s.autopasteEnabled,
-                whisperUrl: s.whisperUrl, ollamaUrl: s.ollamaUrl, history: s.history,
+                hotkey: s.hotkey, ollamaModel: s.ollamaModel, deepgramModel: s.deepgramModel,
+                autopasteEnabled: s.autopasteEnabled, whisperUrl: s.whisperUrl,
+                ollamaUrl: s.ollamaUrl, history: s.history,
             }),
         }
     )

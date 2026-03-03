@@ -252,13 +252,14 @@ function httpPost(urlStr, headers, bodyData) {
     });
 }
 
-// ─── Deepgram Nova-3 ──────────────────────────────────────────
-async function callDeepgram(audioBuffer, language) {
+// ─── Deepgram STT ─────────────────────────────────────────────
+async function callDeepgram(audioBuffer, language, model = 'nova-3') {
     if (!DEEPGRAM_KEY) {
         throw new Error('DEEPGRAM_KEY not configured — add it to your .env file');
     }
 
-    const url = `https://api.deepgram.com/v1/listen?model=nova-3&language=${language}&smart_format=true`;
+    const url = `https://api.deepgram.com/v1/listen?model=${model}&language=${language}&smart_format=true`;
+    console.log(`[DEEPGRAM] Using model: ${model}, lang: ${language}`);
     const res = await httpPost(url, {
         'Authorization': `Token ${DEEPGRAM_KEY}`,
         'Content-Type': 'audio/webm;codecs=opus',
@@ -288,7 +289,7 @@ ipcMain.handle('renderer-ready', () => {
     console.log('[MAIN] Renderer ready');
 });
 
-ipcMain.handle('process-audio', async (_, { audioBase64, lang, duration }) => {
+ipcMain.handle('process-audio', async (_, { audioBase64, lang, deepgramModel, duration }) => {
     if (processingAudio) {
         console.log('[PROCESS] Skipping — already processing');
         return { success: false, error: 'Already processing' };
@@ -308,7 +309,7 @@ ipcMain.handle('process-audio', async (_, { audioBase64, lang, duration }) => {
         }
         console.log('[PROCESS] Sending', webmBuffer.length, 'bytes to Deepgram');
 
-        const transcript = await callDeepgram(webmBuffer, lang || 'fr');
+        const transcript = await callDeepgram(webmBuffer, lang || 'fr', deepgramModel || 'nova-3');
         console.log('[PROCESS] Transcript:', transcript.substring(0, 100));
         if (!transcript.trim()) return { success: false, error: 'Aucun texte capté' };
 
