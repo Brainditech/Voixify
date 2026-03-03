@@ -124,7 +124,20 @@ export const useVoixifyStore = create<VoixifyState>()(
             reset: () => set({ recordingState: 'idle', rawTranscript: '', correctedText: '', errorMessage: null, toastMessage: null }),
         }),
         {
-            name: 'voixify-v2',
+            name: 'voixify-v3',
+            version: 2,
+            migrate: (persistedState: any, version: number) => {
+                // v0/v1 → v2: add missing fields that were introduced after first persist
+                if (version < 2) {
+                    return {
+                        ...persistedState,
+                        hotkey: persistedState?.hotkey || 'CommandOrControl+Space',
+                        deepgramModel: persistedState?.deepgramModel || 'nova-3',
+                        transcriptionSource: persistedState?.transcriptionSource || 'deepgram',
+                    };
+                }
+                return persistedState;
+            },
             partialize: (s) => ({
                 lang: s.lang, mode: s.mode, correctionLevel: s.correctionLevel,
                 hotkey: s.hotkey, ollamaModel: s.ollamaModel, deepgramModel: s.deepgramModel,
