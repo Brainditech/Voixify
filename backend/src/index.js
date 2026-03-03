@@ -1,4 +1,4 @@
-require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env'), quiet: true });
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -10,7 +10,7 @@ const healthRoute = require('./routes/health');
 const REQUIRED_ENV = ['WHISPER_URL', 'OLLAMA_URL', 'OLLAMA_MODEL'];
 for (const key of REQUIRED_ENV) {
   if (!process.env[key]) {
-    console.warn(`⚠️  [ENV] ${key} is not set — using default. Set it in .env for production.`);
+    console.warn(`[ENV] ${key} not set — using default.`);
   }
 }
 
@@ -51,6 +51,14 @@ app.use((err, req, res, next) => {
 const rawWhisperUrl = process.env.WHISPER_URL || 'http://localhost:8000';
 process.env.WHISPER_URL = rawWhisperUrl.replace(/\/transcribe\/?$/, '');
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Voixify Backend ready on :${PORT}`);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[FATAL] Port ${PORT} already in use — kill the previous instance first.`);
+    process.exit(1);
+  }
+  throw err;
 });
