@@ -1,7 +1,8 @@
 {
     "name": "voixify",
-    "version": "1.0.0",
-    "description": "Premium AI dictation app - Voice to text with LLM correction",
+    "version": "2.0.0",
+    "description": "Premium AI dictation app — Voice to text with LLM correction",
+    "author": "Brainditech",
     "main": "electron.cjs",
     "private": true,
     "type": "module",
