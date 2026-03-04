@@ -1,5 +1,22 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const originalError = console.error;
+console.error = (...args) => {
+    ipcRenderer.invoke('log-error', '[RENDERER ERROR] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '));
+    originalError(...args);
+};
+const originalLog = console.log;
+console.log = (...args) => {
+    ipcRenderer.invoke('log-error', '[RENDERER LOG] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '));
+    originalLog(...args);
+};
+
+window.addEventListener('error', (event) => {
+    ipcRenderer.invoke('log-error', '[UNHANDLED ERROR] ' + event.message + ' at ' + event.filename + ':' + event.lineno);
+});
+window.addEventListener('unhandledrejection', (event) => {
+    ipcRenderer.invoke('log-error', '[UNHANDLED REJECTION] ' + event.reason);
+});
 contextBridge.exposeInMainWorld('voixify', {
     // Pill lifecycle
     rendererReady: () => ipcRenderer.invoke('renderer-ready'),
@@ -12,7 +29,7 @@ contextBridge.exposeInMainWorld('voixify', {
     // Settings
     openSettings: () => ipcRenderer.invoke('open-settings'),
     closeSettings: () => ipcRenderer.invoke('close-settings'),
-    updateHotkey: (key) => ipcRenderer.invoke('update-hotkey', key),
+    updateHotkey: (key, showWarning) => ipcRenderer.invoke('update-hotkey', key, showWarning),
     updateSettings: (partial) => ipcRenderer.invoke('update-settings', partial),
     getSettings: () => ipcRenderer.invoke('get-settings'),
 

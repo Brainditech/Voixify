@@ -20,11 +20,13 @@ export function useVoixify() {
     }, [start, isRecording]);
 
     const stopRecording = useCallback(async () => {
-        if (!isRecording()) return;
+        const api = (window as any).voixify;
+        if (!isRecording()) {
+            api?.hideWindow();
+            return;
+        }
         if (processingRef.current) return; // already in flight
         processingRef.current = true;
-
-        const api = (window as any).voixify;
 
         try {
             const { blob, duration } = await stop();
@@ -48,6 +50,7 @@ export function useVoixify() {
             const {
                 lang,
                 deepgramModel,
+                deepgramApiKey,
                 transcriptionSource,
                 llmCorrectionEnabled,
                 correctionLevel,
@@ -60,6 +63,7 @@ export function useVoixify() {
                     audioBase64: base64data,
                     lang,
                     deepgramModel,
+                    deepgramApiKey,
                     transcriptionSource,
                     duration,
                 }),

@@ -62,3 +62,32 @@ server.on('error', (err) => {
   }
   throw err;
 });
+
+// ─── Graceful shutdown ───────────────────────────────────────
+// Electron parent sends 'shutdown' via IPC when the app is quitting.
+// We close the HTTP server to release the port before exiting.
+function gracefulShutdown(source) {
+  console.log(`[SHUTDOWN] Received ${source} — closing server…`);
+  server.close(() => {
+    console.log('[SHUTDOWN] Server closed — port released');
+    // Acknowledge to parent (Electron) if IPC channel is open
+    if (typeof process.send === 'function') {
+      try { process.send('shutdown-ack'); } catch (_) { }
+    }
+    process.exit(0);
+  });
+  // Force exit after 3s if server.close() hangs
+  setTimeout(() => {
+    console.error('[SHUTDOWN] Forced exit after timeout');
+    process.exit(1);
+  }, 3000);
+}
+
+// IPC message from Electron parent process
+process.on('message', (msg) => {
+  if (msg === 'shutdown') gracefulShutdown('IPC shutdown');
+});
+
+// Standard signals (Linux/macOS safety net — also works if run standalone)
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

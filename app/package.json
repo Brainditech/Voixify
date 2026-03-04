@@ -32,6 +32,7 @@
         "concurrently": "^8.2.2",
         "electron": "^28.1.0",
         "electron-builder": "^24.9.1",
+        "png-to-ico": "^3.0.1",
         "typescript": "^5.3.3",
         "vite": "^5.0.10",
         "vite-plugin-electron": "^0.28.4",
@@ -42,7 +43,7 @@
         "productName": "Voixify",
         "win": {
             "target": "nsis",
-            "icon": "public/icon.ico"
+            "icon": "assets/icon.ico"
         },
         "nsis": {
             "oneClick": false,
@@ -53,7 +54,19 @@
         },
         "files": [
             "**/*",
-            "../backend/src/**/*"
+            "!dist-electron",
+            "!node_modules/.cache"
+        ],
+        "extraResources": [
+            {
+                "from": "../backend",
+                "to": "backend",
+                "filter": [
+                    "src/**/*",
+                    "package.json",
+                    "node_modules/**/*"
+                ]
+            }
         ],
         "directories": {
             "output": "dist-electron"

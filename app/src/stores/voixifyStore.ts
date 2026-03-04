@@ -37,9 +37,11 @@ interface VoixifyState {
     hotkey: string;
     ollamaModel: string;
     deepgramModel: string;
+    deepgramApiKey: string;
     transcriptionSource: TranscriptionSource;
     autopasteEnabled: boolean;
     llmCorrectionEnabled: boolean;
+    selectedMicId: string;
     // Direct API endpoints (no backend proxy needed)
     whisperUrl: string;
     ollamaUrl: string;
@@ -62,9 +64,11 @@ interface VoixifyState {
     setHotkey: (k: string) => void;
     setOllamaModel: (m: string) => void;
     setDeepgramModel: (m: string) => void;
+    setDeepgramApiKey: (k: string) => void;
     setTranscriptionSource: (s: TranscriptionSource) => void;
     setAutopasteEnabled: (v: boolean) => void;
     setLlmCorrectionEnabled: (v: boolean) => void;
+    setSelectedMicId: (id: string) => void;
     setWhisperUrl: (u: string) => void;
     setOllamaUrl: (u: string) => void;
     setShowSettings: (v: boolean) => void;
@@ -92,9 +96,11 @@ export const useVoixifyStore = create<VoixifyState>()(
             hotkey: 'CommandOrControl+Space',
             ollamaModel: 'kimi-k2.5:cloud',
             deepgramModel: 'nova-3',
+            deepgramApiKey: '',
             transcriptionSource: 'deepgram',
             autopasteEnabled: true,
             llmCorrectionEnabled: false,
+            selectedMicId: '',
             whisperUrl: 'http://localhost:8000',
             ollamaUrl: 'http://localhost:11434',
 
@@ -115,9 +121,11 @@ export const useVoixifyStore = create<VoixifyState>()(
             setHotkey: (k) => set({ hotkey: k }),
             setOllamaModel: (m) => set({ ollamaModel: m }),
             setDeepgramModel: (m) => set({ deepgramModel: m }),
+            setDeepgramApiKey: (k) => set({ deepgramApiKey: k }),
             setTranscriptionSource: (s) => set({ transcriptionSource: s }),
             setAutopasteEnabled: (v) => set({ autopasteEnabled: v }),
             setLlmCorrectionEnabled: (v) => set({ llmCorrectionEnabled: v }),
+            setSelectedMicId: (id) => set({ selectedMicId: id }),
             setWhisperUrl: (u) => set({ whisperUrl: u }),
             setOllamaUrl: (u) => set({ ollamaUrl: u }),
             setShowSettings: (v) => set({ showSettings: v }),
@@ -152,9 +160,10 @@ export const useVoixifyStore = create<VoixifyState>()(
             },
             partialize: (s) => ({
                 lang: s.lang, mode: s.mode, correctionLevel: s.correctionLevel,
-                hotkey: s.hotkey, ollamaModel: s.ollamaModel, deepgramModel: s.deepgramModel,
+                hotkey: s.hotkey, ollamaModel: s.ollamaModel, deepgramModel: s.deepgramModel, deepgramApiKey: s.deepgramApiKey,
                 transcriptionSource: s.transcriptionSource, autopasteEnabled: s.autopasteEnabled,
-                llmCorrectionEnabled: s.llmCorrectionEnabled, whisperUrl: s.whisperUrl,
+                llmCorrectionEnabled: s.llmCorrectionEnabled, selectedMicId: s.selectedMicId,
+                whisperUrl: s.whisperUrl,
                 ollamaUrl: s.ollamaUrl, history: s.history,
             }),
         }

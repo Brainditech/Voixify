@@ -1,8 +1,10 @@
 import { useRef, useCallback, useEffect } from 'react';
+import { useVoixifyStore } from '../stores/voixifyStore';
 
 // Persistent mic stream acquired at mount — eliminates getUserMedia latency on each recording
 let sharedStream: MediaStream | null = null;
 let sharedAudioContext: AudioContext | null = null;
+let lastMicId: string = ''; // track which mic was acquired
 
 export function useAudioRecorder() {
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -12,20 +14,56 @@ export function useAudioRecorder() {
     const rafRef = useRef<number | null>(null);
     const startTimeRef = useRef<number>(0);
 
-    // Acquire mic at mount so it's ready instantly when recording starts
+    const selectedMicId = useVoixifyStore(s => s.selectedMicId);
+
+    // Build audio constraints — always reads latest selectedMicId from the store
+    // to avoid stale closure issues in useCallback
+    function getAudioConstraints(): MediaStreamConstraints {
+        const audio: MediaTrackConstraints = {};
+        const micId = useVoixifyStore.getState().selectedMicId || '';
+        if (micId) {
+            audio.deviceId = { exact: micId };
+        }
+        return { audio: audio.deviceId ? audio : true, video: false };
+    }
+
+    // Helper: get current mic ID from the store (avoids stale closures)
+    function getCurrentMicId(): string {
+        return useVoixifyStore.getState().selectedMicId || '';
+    }
+
+    // Acquire mic at mount (and re-acquire when selectedMicId changes)
     useEffect(() => {
-        if (sharedStream) return; // already acquired by a previous mount
-        navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-            .then((stream) => {
-                sharedStream = stream;
-                const track = stream.getAudioTracks()[0];
-                console.log('[RECORDER] Mic ready:', track.label);
-            })
-            .catch((err) => {
-                console.error('[RECORDER] Mic pre-acquire failed:', err);
-            });
+        const currentMicId = getCurrentMicId();
+        // If the mic ID changed, release the old stream
+        if (sharedStream && lastMicId !== currentMicId) {
+            console.log('[RECORDER] Mic changed, releasing old stream…');
+            sharedStream.getTracks().forEach(t => t.stop());
+            sharedStream = null;
+        }
+
+        if (sharedStream) return; // already acquired with the right mic
+        try {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                console.error('[RECORDER] navigator.mediaDevices is undefined! Microphone access is blocked by the context.');
+                return;
+            }
+            const constraints = getAudioConstraints();
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then((stream) => {
+                    sharedStream = stream;
+                    lastMicId = getCurrentMicId();
+                    const track = stream.getAudioTracks()[0];
+                    console.log('[RECORDER] Mic ready:', track.label);
+                })
+                .catch((err) => {
+                    console.error('[RECORDER] Mic pre-acquire failed:', err);
+                });
+        } catch (e) {
+            console.error('[RECORDER] Synchronous error inside useEffect:', e);
+        }
         // intentionally not cleaning up sharedStream — kept for the app lifetime
-    }, []);
+    }, [selectedMicId]);
 
     const getAnalyser = useCallback(() => analyserRef.current, []);
 
@@ -58,9 +96,26 @@ export function useAudioRecorder() {
         cleanupAudioNodes();
 
         try {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('navigator.mediaDevices is undefined (Microphone blocked)');
+            }
+
+            const currentMicId = getCurrentMicId();
+
+            // If the selected mic changed since the shared stream was acquired, release it
+            if (sharedStream && lastMicId !== currentMicId) {
+                console.log('[RECORDER] Mic changed at start(), re-acquiring…');
+                sharedStream.getTracks().forEach(t => t.stop());
+                sharedStream = null;
+            }
+
+            const constraints = getAudioConstraints();
             const stream = sharedStream
-                ?? await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            if (!sharedStream) sharedStream = stream;
+                ?? await navigator.mediaDevices.getUserMedia(constraints);
+            if (!sharedStream) {
+                sharedStream = stream;
+                lastMicId = currentMicId;
+            }
 
             // Reuse or create AudioContext
             if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
