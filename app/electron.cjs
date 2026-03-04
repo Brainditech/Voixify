@@ -4,7 +4,7 @@ const {
 } = require('electron');
 const path = require('path');
 const os = require('os');
-const { exec } = require('child_process');
+const { exec, fork } = require('child_process');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -482,8 +482,32 @@ ipcMain.handle('close-settings', () => {
     if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.close();
 });
 
+// ─── Backend Manager ──────────────────────────────────────────
+let backendProcess = null;
+
+function startBackend() {
+    if (isDev) return; // In dev, we use concurrently via npm run dev
+
+    const backendPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'app', 'backend', 'src', 'index.js')
+        : path.join(__dirname, '..', 'backend', 'src', 'index.js');
+
+    backendProcess = fork(backendPath, [], {
+        env: { ...process.env, NODE_ENV: 'production' },
+        stdio: 'ignore' // Hides backend express console
+    });
+}
+
+function stopBackend() {
+    if (backendProcess) {
+        backendProcess.kill();
+        backendProcess = null;
+    }
+}
+
 // ─── App lifecycle ────────────────────────────────────────────
 app.whenReady().then(() => {
+    startBackend();
     createWindow();
     createTray();
     registerHotkey('CommandOrControl+Space');
@@ -495,6 +519,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+    stopBackend();
     globalShortcut.unregisterAll();
     try {
         if (fs.existsSync(vbsPastePath)) {
