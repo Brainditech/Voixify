@@ -4,7 +4,7 @@ import History from './History';
 
 const api = (window as any).voixify;
 
-type Tab = 'transcription' | 'advanced' | 'history';
+type Tab = 'transcription' | 'input' | 'advanced' | 'history';
 
 const HOTKEY_OPTIONS = [
     { label: 'Ctrl+Space', value: 'CommandOrControl+Space' },
@@ -147,6 +147,23 @@ export default function Settings() {
                         Transcription
                     </button>
                     <button
+                        className={`sidebar-nav-item ${activeTab === 'input' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('input')}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="2" y="4" width="20" height="16" rx="2" />
+                            <path d="M6 8h.01" />
+                            <path d="M10 8h.01" />
+                            <path d="M14 8h.01" />
+                            <path d="M18 8h.01" />
+                            <path d="M8 12h.01" />
+                            <path d="M12 12h.01" />
+                            <path d="M16 12h.01" />
+                            <path d="M7 16h10" />
+                        </svg>
+                        Entrée
+                    </button>
+                    <button
                         className={`sidebar-nav-item ${activeTab === 'advanced' ? 'active' : ''}`}
                         onClick={() => setActiveTab('advanced')}
                     >
@@ -188,7 +205,7 @@ export default function Settings() {
                                 </svg>
                                 <span>Transcription</span>
                             </div>
-                            <p className="settings-page-desc">Configurez la reconnaissance vocale et les raccourcis clavier.</p>
+                            <p className="settings-page-desc">Configurez la reconnaissance vocale.</p>
 
                             {/* Langue */}
                             <section className="settings-section">
@@ -296,6 +313,26 @@ export default function Settings() {
                                     </div>
                                 </section>
                             )}
+                        </div>
+                    )}
+
+                    {activeTab === 'input' && (
+                        <div className="settings-body">
+                            <div className="settings-page-title">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                                    <path d="M6 8h.01" />
+                                    <path d="M10 8h.01" />
+                                    <path d="M14 8h.01" />
+                                    <path d="M18 8h.01" />
+                                    <path d="M8 12h.01" />
+                                    <path d="M12 12h.01" />
+                                    <path d="M16 12h.01" />
+                                    <path d="M7 16h10" />
+                                </svg>
+                                <span>Entrée</span>
+                            </div>
+                            <p className="settings-page-desc">Microphone et raccourci clavier.</p>
 
                             {/* Microphone */}
                             <section className="settings-section">
