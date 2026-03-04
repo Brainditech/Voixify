@@ -45,8 +45,11 @@ function Pill() {
             if (saved.selectedMicId) store.setSelectedMicId(saved.selectedMicId);
         }).catch(() => { });
 
-        // Sync ALL persisted settings from Zustand store → main process on startup.
-        // This ensures mainSettings in electron.cjs matches the user's saved preferences.
+        // Sync les paramètres non-critiques depuis Zustand → main process.
+        // IMPORTANT: on n'envoie PAS le hotkey ici — le main process a déjà chargé
+        // la bonne valeur depuis settings.json. Envoyer le hotkey depuis le localStorage
+        // Zustand écraserait silencieusement la valeur correcte avec une valeur potentiellement
+        // périmée. Le hotkey n'est changé que via la fenêtre Paramètres (update-hotkey IPC).
         const state = useVoixifyStore.getState();
         api.updateSettings({
             transcriptionSource: state.transcriptionSource,
@@ -59,7 +62,6 @@ function Pill() {
             ollamaModel: state.ollamaModel,
             selectedMicId: state.selectedMicId,
         }).catch(() => { });
-        api.updateHotkey(state.hotkey, true).catch(() => { });
 
         api.onStateChange((s: string) => {
             setRecordingState(s as any);
