@@ -53,7 +53,19 @@
         },
         "files": [
             "**/*",
-            "../backend/src/**/*"
+            "!dist-electron",
+            "!node_modules/.cache"
+        ],
+        "extraResources": [
+            {
+                "from": "../backend",
+                "to": "backend",
+                "filter": [
+                    "src/**/*",
+                    "package.json",
+                    "node_modules/**/*"
+                ]
+            }
         ],
         "directories": {
             "output": "dist-electron"
