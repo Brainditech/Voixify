@@ -73,10 +73,16 @@ export default function Settings() {
     useEffect(() => {
         async function syncWithMain() {
             try {
-                // Load persisted settings from main process (JSON file)
+                // Charger les paramètres persistés depuis le main process (fichier JSON).
+                // Le fichier JSON est la SOURCE DE VÉRITÉ pour le raccourci et la clé API —
+                // il peut différer du localStorage (Zustand) si l'utilisateur a changé
+                // un paramètre puis redémarré l'app.
                 const saved = await api?.getSettings();
                 if (saved) {
-                    if (saved.deepgramApiKey && !deepgramApiKey) setDeepgramApiKey(saved.deepgramApiKey);
+                    // Toujours prendre le raccourci du JSON — pas du localStorage
+                    // C'est le fix du bug : hotkey affiché ≠ hotkey actif au redémarrage
+                    if (saved.hotkey) setHotkey(saved.hotkey);
+                    if (saved.deepgramApiKey) setDeepgramApiKey(saved.deepgramApiKey);
                     if (saved.selectedMicId) setSelectedMicId(saved.selectedMicId);
                 }
 
@@ -97,16 +103,43 @@ export default function Settings() {
         api?.updateSettings({ [key]: value }).catch(() => { });
     }
 
-    async function fetchOllamaModels() {
+    async function fetchOllamaModels(attempt = 1) {
         setModelsLoading(true);
         try {
-            const res = await fetch('http://127.0.0.1:3001/api/models');
-            if (res.ok) {
-                const data = await res.json();
-                const names = (data.models || []).map((m: any) => m.name || m);
-                if (names.length > 0) setAvailableModels(names);
+            // Appeler Ollama directement — sans passer par le backend proxy.
+            // Le proxy met plusieurs secondes à démarrer dans l'app packagée,
+            // ce qui fait échouer silencieusement le chargement des modèles.
+            // On essaie d'abord l'URL configurée par l'utilisateur, puis localhost.
+            const baseUrl = useVoixifyStore.getState().ollamaUrl || 'http://localhost:11434';
+            const urlsToTry = [baseUrl, 'http://localhost:11434'].filter(
+                (u, i, arr) => arr.indexOf(u) === i // dédoublonner
+            );
+
+            let models: string[] = [];
+            for (const url of urlsToTry) {
+                try {
+                    const res = await fetch(`${url}/api/tags`, {
+                        signal: AbortSignal.timeout(5000),
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        models = (data.models || []).map((m: any) => m.name || m).filter(Boolean);
+                        if (models.length > 0) break; // succès, on arrête
+                    }
+                } catch {
+                    // Cette URL n'est pas disponible, on essaie la suivante
+                }
             }
-        } catch { } finally {
+
+            if (models.length > 0) {
+                setAvailableModels(models);
+            } else if (attempt < 3) {
+                // Ollama n'est peut-être pas encore prêt — retry dans 3s (max 3 tentatives)
+                setTimeout(() => fetchOllamaModels(attempt + 1), 3000);
+            }
+        } catch {
+            // Silencieux — Ollama peut ne pas être installé
+        } finally {
             setModelsLoading(false);
         }
     }

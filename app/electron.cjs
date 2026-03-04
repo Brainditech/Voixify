@@ -1,5 +1,5 @@
 const {
-    app, BrowserWindow, globalShortcut, Tray, Menu,
+    app, BrowserWindow, globalShortcut, Tray, Menu, powerMonitor,
     clipboard, ipcMain, nativeImage, screen, dialog, session
 } = require('electron');
 const path = require('path');
@@ -8,6 +8,16 @@ const { exec, fork } = require('child_process');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+
+// ─── Single Instance Lock ────────────────────────────────────
+// Si une instance tourne déjà, on la focus et on quitte immédiatement.
+// Cela garantit que l'ancienne instance (zombie ou non) libère ses
+// raccourcis AVANT que la nouvelle tente de les enregistrer.
+if (!app.requestSingleInstanceLock()) {
+    // Une instance existe déjà → on lui envoie le signal de focus et on sort
+    app.quit();
+    process.exit(0);
+}
 
 const logFile = path.join(os.tmpdir(), 'voixify_debug.log');
 fs.appendFileSync(logFile, '\n--- MAIN PROCESS START ---\n');
@@ -46,7 +56,9 @@ const SETTINGS_W = 820;
 const SETTINGS_H = 660;
 
 // App icon path — used for tray and settings window
-const ICON_PATH = path.join(__dirname, 'assets', 'icon.png');
+// Windows requires .ico for proper taskbar/tray display; other platforms use .png
+const ICON_PATH = path.join(__dirname, 'assets',
+    process.platform === 'win32' ? 'icon.ico' : 'icon.png');
 
 // Deepgram key from environment (fallback — UI key takes priority)
 const DEEPGRAM_KEY_ENV = process.env.DEEPGRAM_KEY || '';
@@ -124,9 +136,12 @@ function fixWebmBuffer(buf) {
 let mainWindow = null;
 let settingsWindow = null;
 let tray = null;
-let currentHotkey = 'CommandOrControl+Space';
+let currentHotkey = persistedSettings.hotkey || 'CommandOrControl+Space';
 let isRecordingActive = false;
 let processingAudio = false;
+// Références aux intervalles de heartbeat pour pouvoir les stopper proprement
+let fastHeartbeatRef = null;
+let slowHeartbeatRef = null;
 
 // ─── Safe IPC send ───────────────────────────────────────────
 function safeSend(channel, ...args) {
@@ -230,9 +245,13 @@ function showPill() {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     const pos = pillPos();
     mainWindow.setBounds({ width: PILL_W, height: PILL_H, ...pos });
+    // Sur Windows, showInactive() seul peut échouer à rendre la fenêtre
+    // visible si une autre fenêtre est au premier plan. Le cycle
+    // setAlwaysOnTop(true, 'screen-saver') force le DWM compositor
+    // à placer la fenêtre au-dessus de tout, y compris les overlays jeu.
+    mainWindow.setAlwaysOnTop(true, 'screen-saver');
     mainWindow.showInactive();
     safeSend('state-change', 'recording');
-
 }
 
 // ─── Stop recording and hide ─────────────────────────────────
@@ -247,12 +266,35 @@ function triggerStop() {
 let holdTimer = null;
 let repeatCount = 0;
 
+// Defensive re-registration: called on power resume, screen unlock, and heartbeat
+// NOTE: we do NOT reset processingAudio / isRecordingActive here because the
+// system could resume from sleep *during* an active recording — resetting those
+// flags would leave the pill stuck in a processing state forever.
+function ensureHotkeyRegistered() {
+    // Only reset the hold-timer state (keyboard-level state, safe to reset)
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    repeatCount = 0;
+
+    // Re-register the hotkey (registerHotkey calls unregisterAll internally)
+    const success = registerHotkey(currentHotkey);
+    console.log('[HOTKEY] Re-registered:', currentHotkey, '→', success);
+
+    // Ensure pill window exists and is usable
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        console.log('[HOTKEY] Pill window gone — recreating');
+        createWindow();
+    }
+
+    return success;
+}
+
 function registerHotkey(key) {
     globalShortcut.unregisterAll();
     currentHotkey = key;
     if (tray) tray.setToolTip('Voixify');
 
     const success = globalShortcut.register(key, () => {
+        console.log('[HOTKEY] ✓ Callback triggered for', key);
         // Auto-recreate the Pill window if it was destroyed (crash, GC, etc.)
         if (!mainWindow || mainWindow.isDestroyed()) {
             console.log('[HOTKEY] Pill window missing — recreating...');
@@ -298,6 +340,10 @@ function registerHotkey(key) {
         }, timeout);
     });
 
+    console.log(`[HOTKEY] register("${key}") → ${success}`);
+    if (!success) {
+        console.error(`[HOTKEY] FAILED to register "${key}"`);
+    }
     return success;
 }
 
@@ -386,7 +432,10 @@ async function callDeepgram(audioBuffer, language, model = 'nova-3', apiKey = ''
 // ─── IPC handlers ────────────────────────────────────────────
 
 ipcMain.handle('renderer-ready', () => {
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+    // Ne cacher la fenêtre QUE si on n'est pas en train d'enregistrer.
+    // Sinon, le renderer qui finit de charger pendant un enregistrement
+    // masquerait la pill alors qu'elle devrait être visible.
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !isRecordingActive) {
         mainWindow.hide();
     }
 });
@@ -576,6 +625,12 @@ ipcMain.handle('update-hotkey', (_, newKey, showWarning = false) => {
             return { success: false, error: 'Raccourci déjà utilisé par le système' };
         }
 
+        // Persister le nouveau raccourci dans le fichier JSON — source de vérité
+        // pour le prochain redémarrage (et pour que get-settings retourne la bonne valeur)
+        mainSettings.hotkey = newKey;
+        savePersistedSettings(mainSettings);
+        console.log('[HOTKEY] Persisted new hotkey:', newKey);
+
         return { success: true };
     } catch (e) {
         console.error('[SETTINGS] Invalid hotkey:', e.message);
@@ -591,6 +646,37 @@ ipcMain.handle('close-settings', () => {
 
 // ─── Backend Manager ──────────────────────────────────────────
 let backendProcess = null;
+const BACKEND_PORT = process.env.BACKEND_PORT || 3001;
+
+// Kill any orphan process occupying BACKEND_PORT (e.g. leftover from a crash)
+function killOrphanBackend() {
+    return new Promise((resolve) => {
+        // In dev, concurrently manages the backend — never kill it here
+        if (isDev) { resolve(); return; }
+        if (process.platform !== 'win32') { resolve(); return; }
+        // IMPORTANT: use 'cmd /c' so that pipe characters work correctly in exec() on Windows
+        exec(`cmd /c "netstat -ano | findstr LISTENING | findstr :${BACKEND_PORT}"`, (err, stdout) => {
+            if (err || !stdout.trim()) { resolve(); return; }
+            // Parse PID from netstat output (last column)
+            const lines = stdout.trim().split('\n');
+            const pids = new Set();
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+                const pid = parts[parts.length - 1];
+                if (pid && /^\d+$/.test(pid) && pid !== '0') pids.add(pid);
+            }
+            if (pids.size === 0) { resolve(); return; }
+            console.log('[BACKEND] Killing orphan process(es) on port', BACKEND_PORT, ':', [...pids].join(', '));
+            const kills = [...pids].map(pid =>
+                new Promise(r => exec(`taskkill /PID ${pid} /T /F`, () => r()))
+            );
+            Promise.all(kills).then(() => {
+                // Give OS 1s to fully release the port before we start a new backend
+                setTimeout(resolve, 1000);
+            });
+        });
+    });
+}
 
 function startBackend() {
     if (isDev) return; // In dev, we use concurrently via npm run dev
@@ -616,6 +702,7 @@ function startBackend() {
         backendProcess.on('error', (err) => console.error('[BACKEND] Fork error:', err.message));
         backendProcess.on('exit', (code) => {
             if (code !== 0 && code !== null) console.error('[BACKEND] Exited with code', code);
+            backendProcess = null;
         });
 
         console.log('[BACKEND] Started (PID:', backendProcess.pid, ')');
@@ -625,33 +712,153 @@ function startBackend() {
 }
 
 function stopBackend() {
-    if (backendProcess) {
-        backendProcess.kill();
-        backendProcess = null;
-    }
+    return new Promise((resolve) => {
+        if (!backendProcess) { resolve(); return; }
+
+        const pid = backendProcess.pid;
+        let resolved = false;
+        const done = () => { if (!resolved) { resolved = true; backendProcess = null; resolve(); } };
+
+        // 1) Ask the backend to shut down gracefully via IPC
+        try {
+            backendProcess.send('shutdown');
+        } catch (_) { /* process may already be dead */ }
+
+        // 2) Listen for clean exit
+        backendProcess.once('exit', done);
+
+        // 3) Timeout: force-kill after 2s if still alive
+        setTimeout(() => {
+            if (resolved) return;
+            console.log('[BACKEND] Graceful shutdown timed out — force-killing PID', pid);
+            if (process.platform === 'win32') {
+                // cmd /c required for pipes/builtins in exec() on Windows
+                exec(`cmd /c "taskkill /PID ${pid} /T /F"`, (err) => {
+                    if (err) console.error('[BACKEND] taskkill error:', err.message);
+                    done();
+                });
+            } else {
+                try { backendProcess.kill('SIGKILL'); } catch (_) { }
+                done();
+            }
+        }, 2000);
+    });
 }
 
+// ─── Last-resort sync kill on brutal process termination ─────
+// If Electron is killed via Task Manager or crashes, 'will-quit' never fires.
+// process.on('exit') is the only hook that runs synchronously in that case.
+// We use execFileSync (no shell needed) to kill the backend tree immediately.
+process.on('exit', () => {
+    if (backendProcess && backendProcess.pid) {
+        try {
+            const { execFileSync } = require('child_process');
+            execFileSync('taskkill', ['/PID', String(backendProcess.pid), '/T', '/F'],
+                { stdio: 'ignore', timeout: 2000 });
+        } catch (_) { /* best effort */ }
+    }
+});
+
 // ─── App lifecycle ────────────────────────────────────────────
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+    // Kill any orphan backend from a previous crash before starting a new one
+    await killOrphanBackend();
     startBackend();
     createWindow();
     createTray();
-    registerHotkey('CommandOrControl+Space');
+    // ─── Register hotkey ──────────────────────────────────────────
+    // On utilise le raccourci persisté dans settings.json (chargé dans currentHotkey).
+    // Le single-instance lock garantit qu'aucune instance précédente ne bloque le raccourci.
+    // On ne fait plus de fallback automatique : si le raccourci échoue (ex: conflit système),
+    // l'utilisateur doit le changer manuellement dans les Paramètres.
+    const hotkeySuccess = registerHotkey(currentHotkey);
+    if (!hotkeySuccess) {
+        console.error('[STARTUP] Hotkey registration failed for:', currentHotkey,
+            '— probablement un conflit système. Merci de changer le raccourci dans les Paramètres.');
+        // Ne PAS écraser le raccourci sauvegardé avec un fallback silencieux.
+        // L'utilisateur verra que le raccourci ne fonctionne pas et pourra le changer.
+    } else {
+        console.log('[STARTUP] Hotkey registered:', currentHotkey);
+        // S'assurer que mainSettings.hotkey est bien synchronisé
+        mainSettings.hotkey = currentHotkey;
+    }
 
+    // ─── Power events: re-register hotkey after sleep/lock ────────
+    // Windows can silently invalidate globalShortcut registrations
+    // when the system resumes from sleep or the screen is unlocked.
+    powerMonitor.on('resume', () => {
+        console.log('[POWER] System resumed — re-registering hotkey in 2s');
+        setTimeout(() => ensureHotkeyRegistered(), 2000);
+    });
+    powerMonitor.on('unlock-screen', () => {
+        console.log('[POWER] Screen unlocked — re-registering hotkey in 1s');
+        setTimeout(() => ensureHotkeyRegistered(), 1000);
+    });
+
+    // ─── Heartbeat: fast for first 60s, then every 30s ───────────
+    // Fast heartbeat catches hotkeys silently lost during startup
+    let heartbeatCount = 0;
+    fastHeartbeatRef = setInterval(() => {
+        heartbeatCount++;
+        const isRegistered = globalShortcut.isRegistered(currentHotkey);
+        console.log(`[HEARTBEAT] #${heartbeatCount} isRegistered=${isRegistered} key=${currentHotkey}`);
+        if (!isRegistered) {
+            console.log('[HEARTBEAT] Hotkey lost — re-registering');
+            ensureHotkeyRegistered();
+        }
+        // Switch to slower heartbeat after 60s (12 × 5s)
+        if (heartbeatCount >= 12) {
+            clearInterval(fastHeartbeatRef);
+            fastHeartbeatRef = null;
+            slowHeartbeatRef = setInterval(() => {
+                if (!globalShortcut.isRegistered(currentHotkey)) {
+                    console.log('[HEARTBEAT] Hotkey lost — re-registering');
+                    ensureHotkeyRegistered();
+                }
+            }, 30000);
+        }
+    }, 5000);
+
+    // ─── Second instance: focus existing window ───────────────
+    app.on('second-instance', () => {
+        // L'utilisateur a tenté de lancer une 2ème instance — on focus notre fenêtre
+        if (settingsWindow && !settingsWindow.isDestroyed()) {
+            settingsWindow.focus();
+        } else if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.showInactive();
+        }
+    });
 });
 
 app.on('window-all-closed', () => {
     // Intentionally empty — prevent default quit behavior (tray app)
 });
 
-app.on('will-quit', () => {
-    stopBackend();
+function onWillQuit(e) {
+    // Prevent default quit so we can do async cleanup
+    e.preventDefault();
+
+    // ① Libérer les raccourcis en PREMIER et de façon SYNCHRONE
+    //    → garantit que Windows libère le binding avant toute autre opération async.
+    //    Sur Windows, ne pas le faire avant un await laisse le raccourci "verrouillé"
+    //    pour la prochaine instance.
     globalShortcut.unregisterAll();
-    try {
-        if (fs.existsSync(vbsPastePath)) {
-            fs.unlinkSync(vbsPastePath);
-        }
-    } catch (e) {
-        // Best effort cleanup
-    }
-});
+    console.log('[QUIT] globalShortcut.unregisterAll() done');
+
+    // ② Stopper les heartbeats pour éviter des re-registrations pendant le quit
+    if (fastHeartbeatRef) { clearInterval(fastHeartbeatRef); fastHeartbeatRef = null; }
+    if (slowHeartbeatRef) { clearInterval(slowHeartbeatRef); slowHeartbeatRef = null; }
+
+    // ③ Cleanup async (backend + fichiers temporaires), puis quit final
+    (async () => {
+        await stopBackend();
+        try {
+            if (fs.existsSync(vbsPastePath)) fs.unlinkSync(vbsPastePath);
+        } catch (_) { /* best effort */ }
+
+        // Quitter définitivement — on désactive le listener pour éviter la boucle infinie
+        app.off('will-quit', onWillQuit);
+        app.quit();
+    })();
+}
+app.on('will-quit', onWillQuit);
