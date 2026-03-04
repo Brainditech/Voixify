@@ -40,30 +40,56 @@ export default function Settings() {
         correctionLevel, setCorrectionLevel,
         ollamaModel, setOllamaModel,
         deepgramModel, setDeepgramModel,
+        deepgramApiKey, setDeepgramApiKey,
         transcriptionSource, setTranscriptionSource,
         whisperUrl, setWhisperUrl,
         ollamaUrl, setOllamaUrl,
         autopasteEnabled, setAutopasteEnabled,
         llmCorrectionEnabled, setLlmCorrectionEnabled,
+        selectedMicId, setSelectedMicId,
         availableModels, setAvailableModels,
     } = useVoixifyStore();
 
     const [activeTab, setActiveTab] = useState<Tab>('transcription');
     const [hotkeyStatus, setHotkeyStatus] = useState<'idle' | 'ok' | 'error'>('idle');
     const [modelsLoading, setModelsLoading] = useState(false);
+    const [showApiKey, setShowApiKey] = useState(false);
+    const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+
+    // Enumerate audio input devices
+    async function refreshAudioDevices() {
+        try {
+            // Need to request access first so device labels are available
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(t => t.stop());
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const inputs = devices.filter(d => d.kind === 'audioinput');
+            setAudioDevices(inputs);
+        } catch (e) {
+            console.error('[SETTINGS] Failed to enumerate audio devices:', e);
+        }
+    }
 
     useEffect(() => {
         async function syncWithMain() {
             try {
+                // Load persisted settings from main process (JSON file)
+                const saved = await api?.getSettings();
+                if (saved) {
+                    if (saved.deepgramApiKey && !deepgramApiKey) setDeepgramApiKey(saved.deepgramApiKey);
+                    if (saved.selectedMicId) setSelectedMicId(saved.selectedMicId);
+                }
+
                 await api?.updateSettings({
-                    transcriptionSource, lang, deepgramModel,
+                    transcriptionSource, lang, deepgramModel, deepgramApiKey,
                     correctionLevel, llmCorrectionEnabled,
-                    autopasteEnabled, ollamaModel,
+                    autopasteEnabled, ollamaModel, selectedMicId,
                 });
             } catch { }
         }
         syncWithMain();
         fetchOllamaModels();
+        refreshAudioDevices();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     function setSetting<T>(key: string, value: T, setter: (v: T) => void) {
@@ -204,6 +230,51 @@ export default function Settings() {
                                 </p>
                             </section>
 
+                            {/* Clé API Deepgram */}
+                            {transcriptionSource === 'deepgram' && (
+                                <section className="settings-section">
+                                    <h2 className="settings-section-title">Clé API Deepgram</h2>
+                                    <div className="api-key-row">
+                                        <input
+                                            className="settings-input api-key-input"
+                                            type={showApiKey ? 'text' : 'password'}
+                                            value={deepgramApiKey}
+                                            onChange={e => {
+                                                setDeepgramApiKey(e.target.value);
+                                                api?.updateSettings({ deepgramApiKey: e.target.value }).catch(() => { });
+                                            }}
+                                            placeholder="Collez votre clé API Deepgram ici…"
+                                            spellCheck={false}
+                                            autoComplete="off"
+                                        />
+                                        <button
+                                            className="api-key-toggle"
+                                            onClick={() => setShowApiKey(!showApiKey)}
+                                            title={showApiKey ? 'Masquer' : 'Afficher'}
+                                            type="button"
+                                        >
+                                            {showApiKey ? (
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                                                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                                                    <line x1="1" y1="1" x2="23" y2="23" />
+                                                </svg>
+                                            ) : (
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                                    <circle cx="12" cy="12" r="3" />
+                                                </svg>
+                                            )}
+                                        </button>
+                                    </div>
+                                    <p className="settings-hint">
+                                        {deepgramApiKey
+                                            ? '✓ Clé configurée'
+                                            : '⚠ Aucune clé — la transcription ne fonctionnera pas'}
+                                    </p>
+                                </section>
+                            )}
+
                             {/* Modèle Deepgram */}
                             {transcriptionSource === 'deepgram' && (
                                 <section className="settings-section">
@@ -225,6 +296,32 @@ export default function Settings() {
                                     </div>
                                 </section>
                             )}
+
+                            {/* Microphone */}
+                            <section className="settings-section">
+                                <h2 className="settings-section-title">Microphone</h2>
+                                <select
+                                    className="settings-select"
+                                    value={selectedMicId}
+                                    onChange={e => {
+                                        const id = e.target.value;
+                                        setSelectedMicId(id);
+                                        api?.updateSettings({ selectedMicId: id }).catch(() => { });
+                                    }}
+                                >
+                                    <option value="">Par défaut (système)</option>
+                                    {audioDevices.map(d => (
+                                        <option key={d.deviceId} value={d.deviceId}>
+                                            {d.label || `Microphone (${d.deviceId.substring(0, 8)}…)`}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="settings-hint">
+                                    {audioDevices.length === 0
+                                        ? '⚠ Aucun microphone détecté'
+                                        : `${audioDevices.length} microphone${audioDevices.length > 1 ? 's' : ''} détecté${audioDevices.length > 1 ? 's' : ''}`}
+                                </p>
+                            </section>
 
                             {/* Raccourci */}
                             <section className="settings-section">

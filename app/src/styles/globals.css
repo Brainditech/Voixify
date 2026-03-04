@@ -585,6 +585,45 @@ body,
   border-color: rgba(74, 222, 128, 0.4);
 }
 
+/* API Key row */
+.api-key-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.api-key-input {
+  flex: 1;
+  font-family: 'Inter', monospace;
+  letter-spacing: 0.5px;
+}
+
+.api-key-input::placeholder {
+  letter-spacing: 0;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.api-key-toggle {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.35);
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.api-key-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
 /* Toggle */
 .toggle {
   width: 44px;
