@@ -101,8 +101,8 @@ export const useVoixifyStore = create<VoixifyState>()(
             autopasteEnabled: true,
             llmCorrectionEnabled: false,
             selectedMicId: '',
-            whisperUrl: 'http://localhost:8000',
-            ollamaUrl: 'http://localhost:11434',
+            whisperUrl: 'http://127.0.0.1:8000',
+            ollamaUrl: 'http://127.0.0.1:11434',
 
             showSettings: false,
             showHistory: false,

@@ -58,7 +58,7 @@ router.post('/', async (req, res) => {
             console.warn(`[CORRECT] Unknown level "${level}", falling back to "standard"`);
         }
 
-        const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
+        const ollamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
         const model = req.body.model || process.env.OLLAMA_MODEL || 'llama3';
         const prompts = PROMPTS[lang] || PROMPTS.fr;
 
@@ -110,7 +110,7 @@ router.post('/', async (req, res) => {
         // Build a user-friendly error message
         let userError = err.message;
         if (err.code === 'ECONNREFUSED' || err.message?.includes('ECONNREFUSED')) {
-            userError = `Ollama injoignable sur ${process.env.OLLAMA_URL || 'http://localhost:11434'} — vérifiez qu'Ollama est lancé`;
+            userError = `Ollama injoignable sur ${process.env.OLLAMA_URL || 'http://127.0.0.1:11434'} — vérifiez qu'Ollama est lancé`;
         } else if (err.type === 'request-timeout' || err.message?.includes('timeout')) {
             userError = `Ollama timeout (60s) — le modèle est peut-être trop lourd`;
         } else if (err.message?.includes('404') || err.message?.includes('model')) {

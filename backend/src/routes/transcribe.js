@@ -110,7 +110,7 @@ router.post('/', upload.single('audio'), handleMulterError, async (req, res) => 
             return res.status(400).json({ error: 'No audio file provided' });
         }
 
-        const whisperUrl = process.env.WHISPER_URL || 'http://host.docker.internal:8000';
+        const whisperUrl = process.env.WHISPER_URL || 'http://127.0.0.1:8000';
         const lang = req.body.lang || 'fr';
 
         console.log(`[TRANSCRIBE] ${req.file.size} bytes → ${whisperUrl} (lang: ${lang})`);

@@ -22,15 +22,63 @@ if (!app.requestSingleInstanceLock()) {
 const logFile = path.join(os.tmpdir(), 'voixify_debug.log');
 fs.appendFileSync(logFile, '\n--- MAIN PROCESS START ---\n');
 const originalMainLog = console.log;
+const originalMainError = console.error;
+
+// ─── Buffered Async Logging ─────────────────────────────────
+// Prevents synchronous disk I/O from blocking the main thread.
+// Flushes every 2s or when the buffer exceeds 16KB.
+let logBuffer = '';
+let flushTimer = null;
+
+function flushLog() {
+    if (!logBuffer) return;
+    const data = logBuffer;
+    logBuffer = '';
+    fs.appendFile(logFile, data, { encoding: 'utf8' }, (err) => {
+        if (err) originalMainError('[LOG ERROR] Failed to write to disk:', err.message);
+    });
+}
+
+function queueLog(level, args) {
+    const timestamp = new Date().toISOString();
+    const message = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
+    logBuffer += `[${timestamp}] [${level}] ${message}\n`;
+
+    if (logBuffer.length > 16384) {
+        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+        flushLog();
+    } else if (!flushTimer) {
+        flushTimer = setTimeout(() => {
+            flushTimer = null;
+            flushLog();
+        }, 2000);
+    }
+}
+
 console.log = (...args) => {
-    fs.appendFileSync(logFile, '[MAIN LOG] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ') + '\n');
+    queueLog('LOG', args);
     originalMainLog(...args);
 };
-const originalMainError = console.error;
+
 console.error = (...args) => {
-    fs.appendFileSync(logFile, '[MAIN ERROR] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ') + '\n');
+    queueLog('ERROR', args);
     originalMainError(...args);
 };
+
+// ─── Log Rotation ───────────────────────────────────────────
+// Keep the log file under 1MB by keeping only the last 512KB at startup.
+try {
+    if (fs.existsSync(logFile)) {
+        const stats = fs.statSync(logFile);
+        if (stats.size > 1024 * 1024) {
+            originalMainLog(`[STARTUP] Rotating large log file (${Math.round(stats.size / 1024)}KB)`);
+            const content = fs.readFileSync(logFile, 'utf8');
+            fs.writeFileSync(logFile, '\n--- LOG ROTATED ---\n' + content.slice(-512 * 1024), 'utf8');
+        }
+    }
+} catch (e) {
+    originalMainError('[STARTUP] Log rotation failed:', e.message);
+}
 // ─── Suppress Chromium GPU-cache warnings ────────────────────
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('disable-gpu-cache');
@@ -59,6 +107,10 @@ const SETTINGS_H = 660;
 // Windows requires .ico for proper taskbar/tray display; other platforms use .png
 const ICON_PATH = path.join(__dirname, 'assets',
     process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+
+// ─── Normalize WHISPER_URL — strip trailing /transcribe so the call in transcribe.js doesn't duplicate it
+const rawWhisperUrl = process.env.WHISPER_URL || 'http://127.0.0.1:8000';
+process.env.WHISPER_URL = rawWhisperUrl.replace(/\/transcribe\/?$/, '');
 
 // Deepgram key from environment (fallback — UI key takes priority)
 const DEEPGRAM_KEY_ENV = process.env.DEEPGRAM_KEY || '';
@@ -142,6 +194,29 @@ let processingAudio = false;
 // Références aux intervalles de heartbeat pour pouvoir les stopper proprement
 let fastHeartbeatRef = null;
 let slowHeartbeatRef = null;
+let watchdogRef = null;
+
+// ─── Failsafe Watchdog ───────────────────────────────────────
+// If processingAudio stays true for too long (e.g. hanging network request),
+// we force a reset so the user isn't stuck forever.
+function startWatchdog() {
+    if (watchdogRef) clearTimeout(watchdogRef);
+    watchdogRef = setTimeout(() => {
+        if (processingAudio) {
+            console.error('[WATCHDOG] Audio processing stuck for >60s — forcing reset.');
+            processingAudio = false;
+            isRecordingActive = false;
+            safeSend('state-change', 'error');
+        }
+    }, 60000); // 60s max
+}
+
+function stopWatchdog() {
+    if (watchdogRef) {
+        clearTimeout(watchdogRef);
+        watchdogRef = null;
+    }
+}
 
 // ─── Safe IPC send ───────────────────────────────────────────
 function safeSend(channel, ...args) {
@@ -202,6 +277,22 @@ function createWindow() {
     else mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'pill' });
 
     mainWindow.on('closed', () => { mainWindow = null; });
+
+    // ─── Renderer crash recovery ───────────────────────────────
+    mainWindow.webContents.on('render-process-gone', (event, details) => {
+        console.error('[CRASH] Renderer process gone:', details.reason);
+        // Reset state so the app doesn't stay blocked
+        processingAudio = false;
+        isRecordingActive = false;
+        stopWatchdog();
+        // If it's a "crashed", try to reload/recreate
+        if (details.reason === 'crashed' || details.reason === 'oom') {
+            console.log('[CRASH] Attempting window reload...');
+            setTimeout(() => {
+                if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
+            }, 1000);
+        }
+    });
 }
 
 // ─── Create settings window ──────────────────────────────────
@@ -294,10 +385,12 @@ function registerHotkey(key) {
     if (tray) tray.setToolTip('Voixify');
 
     const success = globalShortcut.register(key, () => {
-        console.log('[HOTKEY] ✓ Callback triggered for', key);
+        // Only log the first press, not the ~30/s repeats from Windows key-repeat
+        if (repeatCount === 0) console.log('[HOTKEY] ✓ Callback triggered for', key);
+
         // Auto-recreate the Pill window if it was destroyed (crash, GC, etc.)
         if (!mainWindow || mainWindow.isDestroyed()) {
-            console.log('[HOTKEY] Pill window missing — recreating...');
+            if (repeatCount === 0) console.log('[HOTKEY] Pill window missing — recreating...');
             createWindow();
             // Wait for window to be ready before showing pill
             mainWindow.webContents.once('did-finish-load', () => {
@@ -368,7 +461,7 @@ function createTray() {
 }
 
 // ─── HTTP POST helper ─────────────────────────────────────────
-function httpPost(urlStr, headers, bodyData) {
+function httpPost(urlStr, headers, bodyData, timeoutMs = 45000) {
     return new Promise((resolve, reject) => {
         try {
             const urlObj = new URL(urlStr);
@@ -381,6 +474,7 @@ function httpPost(urlStr, headers, bodyData) {
                 method: 'POST',
                 headers,
             };
+
             const req = reqModule.request(options, (res) => {
                 let body = '';
                 res.on('data', d => { body += d; });
@@ -393,7 +487,15 @@ function httpPost(urlStr, headers, bodyData) {
                     }
                 });
             });
+
             req.on('error', reject);
+
+            // CRITICAL: timeout to prevent main process hangs
+            req.setTimeout(timeoutMs, () => {
+                req.destroy();
+                reject(new Error(`Request timeout (${timeoutMs}ms)`));
+            });
+
             if (bodyData) req.write(bodyData);
             req.end();
         } catch (e) {
@@ -507,6 +609,7 @@ ipcMain.handle('process-audio', async (_, { audioBase64, duration, lang, deepgra
         return { success: false, error: 'Déjà en cours de traitement' };
     }
     processingAudio = true;
+    startWatchdog();
 
     // Use values from the renderer payload (Zustand store = persisted source of truth).
     // Fall back to mainSettings only if payload is missing values (legacy compat).
@@ -561,6 +664,7 @@ ipcMain.handle('process-audio', async (_, { audioBase64, duration, lang, deepgra
         return { success: false, error: err.message };
     } finally {
         processingAudio = false;
+        stopWatchdog();
     }
 });
 
@@ -845,11 +949,18 @@ function onWillQuit(e) {
     globalShortcut.unregisterAll();
     console.log('[QUIT] globalShortcut.unregisterAll() done');
 
-    // ② Stopper les heartbeats pour éviter des re-registrations pendant le quit
+    // ② Stopper les heartbeats et le watchdog
     if (fastHeartbeatRef) { clearInterval(fastHeartbeatRef); fastHeartbeatRef = null; }
     if (slowHeartbeatRef) { clearInterval(slowHeartbeatRef); slowHeartbeatRef = null; }
+    stopWatchdog();
 
-    // ③ Cleanup async (backend + fichiers temporaires), puis quit final
+    // ③ Flush remaining log buffer synchronously so we don't lose final logs
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    if (logBuffer) {
+        try { fs.appendFileSync(logFile, logBuffer, 'utf8'); logBuffer = ''; } catch (_) { }
+    }
+
+    // ④ Cleanup async (backend + fichiers temporaires), puis quit final
     (async () => {
         await stopBackend();
         try {
