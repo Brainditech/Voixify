@@ -3,8 +3,8 @@ const fetch = require('node-fetch');
 const router = express.Router();
 
 router.get('/', async (req, res) => {
-    const whisperUrl = process.env.WHISPER_URL || 'http://host.docker.internal:8000';
-    const ollamaUrl = process.env.OLLAMA_URL || 'http://host.docker.internal:11434';
+    const whisperUrl = process.env.WHISPER_URL || 'http://127.0.0.1:8000';
+    const ollamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
 
     const checks = await Promise.allSettled([
         // Check Whisper — allSettled never rejects, so no .catch() needed
