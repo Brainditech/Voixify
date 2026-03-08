@@ -19,10 +19,69 @@ if (!app.requestSingleInstanceLock()) {
     process.exit(0);
 }
 
-const logFile = path.join(os.tmpdir(), 'voixify_debug.log');
-fs.appendFileSync(logFile, '\n--- MAIN PROCESS START ---\n');
+// ─── Daily Logging System ────────────────────────────────────
+// Logs are stored as one file per day (voixify_YYYY-MM-DD.log) inside a
+// dedicated logs/ folder.  This prevents a single monolithic file from
+// growing indefinitely and makes old logs easy to inspect or delete.
+//
+// Location:
+//   Production → %APPDATA%/voixify/logs/
+//   Dev        → %TEMP%/voixify-dev-logs/
+//
+// Optimisations:
+//   • Buffered async writes (flush every 2 s or 16 KB – no sync I/O)
+//   • Dynamic midnight rollover (getLogFile() is resolved on every flush)
+//   • Auto-purge of files older than 30 days at startup
+
 const originalMainLog = console.log;
 const originalMainError = console.error;
+
+let _logDirCache = null;
+
+function getLogDir() {
+    if (_logDirCache) return _logDirCache;
+    // app.isPackaged is available synchronously even before whenReady()
+    const base = app.isPackaged
+        ? path.join(process.env.APPDATA || os.homedir(), 'voixify', 'logs')
+        : path.join(os.tmpdir(), 'voixify-dev-logs');
+    try { fs.mkdirSync(base, { recursive: true }); } catch (_) { /* dir may already exist */ }
+    _logDirCache = base;
+    return base;
+}
+
+function getLogFile() {
+    const date = new Date().toISOString().slice(0, 10); // "2026-03-08"
+    return path.join(getLogDir(), `voixify_${date}.log`);
+}
+
+// ─── Auto-purge logs older than 30 days ──────────────────────
+function cleanOldLogs() {
+    try {
+        const dir = getLogDir();
+        const cutoffMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+        for (const f of fs.readdirSync(dir)) {
+            if (!f.startsWith('voixify_') || !f.endsWith('.log')) continue;
+            const full = path.join(dir, f);
+            try {
+                if (fs.statSync(full).mtimeMs < cutoffMs) {
+                    fs.unlinkSync(full);
+                    originalMainLog(`[STARTUP] Purged old log: ${f}`);
+                }
+            } catch (_) { /* best effort per file */ }
+        }
+    } catch (e) {
+        originalMainError('[STARTUP] Log cleanup failed:', e.message);
+    }
+}
+
+// Run cleanup immediately at startup
+cleanOldLogs();
+
+// Write session header into today's log file
+try {
+    fs.appendFileSync(getLogFile(),
+        `\n--- SESSION START ${new Date().toISOString()} ---\n`, 'utf8');
+} catch (_) { /* non-critical */ }
 
 // ─── Buffered Async Logging ─────────────────────────────────
 // Prevents synchronous disk I/O from blocking the main thread.
@@ -34,7 +93,9 @@ function flushLog() {
     if (!logBuffer) return;
     const data = logBuffer;
     logBuffer = '';
-    fs.appendFile(logFile, data, { encoding: 'utf8' }, (err) => {
+    // getLogFile() is resolved on every flush so a midnight rollover
+    // automatically creates the next day's file without restarting the app.
+    fs.appendFile(getLogFile(), data, { encoding: 'utf8' }, (err) => {
         if (err) originalMainError('[LOG ERROR] Failed to write to disk:', err.message);
     });
 }
@@ -64,21 +125,6 @@ console.error = (...args) => {
     queueLog('ERROR', args);
     originalMainError(...args);
 };
-
-// ─── Log Rotation ───────────────────────────────────────────
-// Keep the log file under 1MB by keeping only the last 512KB at startup.
-try {
-    if (fs.existsSync(logFile)) {
-        const stats = fs.statSync(logFile);
-        if (stats.size > 1024 * 1024) {
-            originalMainLog(`[STARTUP] Rotating large log file (${Math.round(stats.size / 1024)}KB)`);
-            const content = fs.readFileSync(logFile, 'utf8');
-            fs.writeFileSync(logFile, '\n--- LOG ROTATED ---\n' + content.slice(-512 * 1024), 'utf8');
-        }
-    }
-} catch (e) {
-    originalMainError('[STARTUP] Log rotation failed:', e.message);
-}
 // ─── Suppress Chromium GPU-cache warnings ────────────────────
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('disable-gpu-cache');
@@ -543,7 +589,7 @@ ipcMain.handle('renderer-ready', () => {
 });
 
 ipcMain.handle('log-error', (_, msg) => {
-    fs.appendFileSync(logFile, msg + '\n');
+    fs.appendFileSync(getLogFile(), msg + '\n');
     return true;
 });
 
@@ -957,7 +1003,7 @@ function onWillQuit(e) {
     // ③ Flush remaining log buffer synchronously so we don't lose final logs
     if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
     if (logBuffer) {
-        try { fs.appendFileSync(logFile, logBuffer, 'utf8'); logBuffer = ''; } catch (_) { }
+        try { fs.appendFileSync(getLogFile(), logBuffer, 'utf8'); logBuffer = ''; } catch (_) { }
     }
 
     // ④ Cleanup async (backend + fichiers temporaires), puis quit final
