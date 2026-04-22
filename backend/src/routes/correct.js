@@ -96,6 +96,7 @@ router.post('/', async (req, res) => {
         console.log(`[CORRECT] Model: ${model} | Lang: ${lang} | Level: ${safeLevel} | Mode: ${mode}`);
         console.log(`[CORRECT] Input: "${text.substring(0, 80)}..."`);
 
+        const startedAt = Date.now();
         const ollamaRes = await fetch(`${ollamaUrl}/api/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -110,7 +111,30 @@ router.post('/', async (req, res) => {
 
         const data = await ollamaRes.json();
         const corrected = data.message?.content || data.response || text;
-        console.log(`[CORRECT] Output: "${corrected.substring(0, 80)}..."`);
+        const wallMs = Date.now() - startedAt;
+
+        // Ollama returns server-side timings in nanoseconds.
+        // load_duration = time spent swapping the model into VRAM (0 when warm)
+        // prompt_eval_duration = time to process the system+user prompt
+        // eval_duration = time to generate the output tokens
+        const toMs = (ns) => Math.round((ns || 0) / 1e6);
+        const loadMs = toMs(data.load_duration);
+        const promptMs = toMs(data.prompt_eval_duration);
+        const evalMs = toMs(data.eval_duration);
+        const evalCount = data.eval_count || 0;
+        const tps = evalMs > 0 ? Math.round((evalCount / evalMs) * 1000) : 0;
+
+        console.log(
+            `[CORRECT] Output: "${corrected.substring(0, 80)}..." ` +
+            `| wall=${wallMs}ms load=${loadMs}ms prompt=${promptMs}ms ` +
+            `eval=${evalMs}ms (${evalCount} tok, ${tps} tok/s)`
+        );
+        if (model.endsWith(':cloud') && wallMs > 3000) {
+            console.warn(
+                `[CORRECT] Slow cloud model detected (${model}). ` +
+                `Consider a local model (ex: llama3.2:3b, qwen2.5:3b) for 1–3s corrections.`
+            );
+        }
 
         res.json({ correctedText: corrected.trim(), model });
     } catch (err) {

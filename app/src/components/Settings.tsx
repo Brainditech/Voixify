@@ -491,6 +491,17 @@ export default function Settings() {
                                             <option key={m} value={m}>{m}</option>
                                         ))}
                                     </select>
+                                    {ollamaModel.endsWith(':cloud') ? (
+                                        <p className="settings-hint" style={{ color: '#f59e0b' }}>
+                                            ⚠ Modèle <b>:cloud</b> — inférence distante (latence réseau + modèle géant).
+                                            Pour une correction en 1–3s, préférez un modèle local léger
+                                            (ex: <code>llama3.2:3b</code>, <code>qwen2.5:3b</code>, <code>phi3.5</code>).
+                                        </p>
+                                    ) : (
+                                        <p className="settings-hint">
+                                            Modèle local — première correction ~5s (chargement en VRAM), suivantes ~1–3s.
+                                        </p>
+                                    )}
                                 </section>
                             )}
 
