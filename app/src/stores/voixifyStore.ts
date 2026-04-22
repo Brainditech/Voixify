@@ -101,7 +101,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             autopasteEnabled: true,
             llmCorrectionEnabled: false,
             selectedMicId: '',
-            whisperUrl: 'http://127.0.0.1:8000',
+            whisperUrl: 'http://127.0.0.1:9990',
             ollamaUrl: 'http://127.0.0.1:11434',
 
             showSettings: false,
@@ -139,7 +139,7 @@ export const useVoixifyStore = create<VoixifyState>()(
         }),
         {
             name: 'voixify-v4',
-            version: 3,
+            version: 4,
             migrate: (persistedState: any, version: number) => {
                 let state = persistedState;
                 if (version < 2) {
@@ -155,6 +155,16 @@ export const useVoixifyStore = create<VoixifyState>()(
                         ...state,
                         llmCorrectionEnabled: state?.llmCorrectionEnabled || false,
                     };
+                }
+                if (version < 4) {
+                    // Migrate whisperUrl from old default port 8000 to new port 9990
+                    const oldUrl = state?.whisperUrl || '';
+                    if (!oldUrl || oldUrl === 'http://127.0.0.1:8000' || oldUrl === 'http://localhost:8000') {
+                        state = {
+                            ...state,
+                            whisperUrl: 'http://127.0.0.1:9990',
+                        };
+                    }
                 }
                 return state;
             },

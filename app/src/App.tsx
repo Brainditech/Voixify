@@ -61,6 +61,8 @@ function Pill() {
             autopasteEnabled: state.autopasteEnabled,
             ollamaModel: state.ollamaModel,
             selectedMicId: state.selectedMicId,
+            whisperUrl: state.whisperUrl,
+            ollamaUrl: state.ollamaUrl,
         }).catch(() => { });
 
         api.onStateChange((s: string) => {
@@ -86,6 +88,8 @@ function Pill() {
             if (settings.autopasteEnabled !== undefined) store.setAutopasteEnabled(settings.autopasteEnabled);
             if (settings.ollamaModel !== undefined) store.setOllamaModel(settings.ollamaModel);
             if (settings.selectedMicId !== undefined) store.setSelectedMicId(settings.selectedMicId);
+            if (settings.whisperUrl !== undefined) store.setWhisperUrl(settings.whisperUrl);
+            if (settings.ollamaUrl !== undefined) store.setOllamaUrl(settings.ollamaUrl);
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);

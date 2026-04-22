@@ -498,14 +498,20 @@ export default function Settings() {
                                 <input
                                     className="settings-input"
                                     value={whisperUrl}
-                                    onChange={e => setWhisperUrl(e.target.value)}
-                                    placeholder="http://localhost:8000"
+                                    onChange={e => {
+                                        setWhisperUrl(e.target.value);
+                                        api?.updateSettings({ whisperUrl: e.target.value }).catch(() => { });
+                                    }}
+                                    placeholder="http://localhost:9990"
                                 />
                                 <label className="settings-label" style={{ marginTop: 10 }}>Ollama URL</label>
                                 <input
                                     className="settings-input"
                                     value={ollamaUrl}
-                                    onChange={e => setOllamaUrl(e.target.value)}
+                                    onChange={e => {
+                                        setOllamaUrl(e.target.value);
+                                        api?.updateSettings({ ollamaUrl: e.target.value }).catch(() => { });
+                                    }}
                                     placeholder="http://localhost:11434"
                                 />
                             </section>

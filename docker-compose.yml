@@ -8,7 +8,7 @@ services:
     ports:
       - "${BACKEND_PORT:-3001}:3001"
     environment:
-      - WHISPER_URL=${WHISPER_URL:-http://host.docker.internal:8000}
+      - WHISPER_URL=${WHISPER_URL:-http://host.docker.internal:9990}
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-kimi-k2.5:cloud}
       - BACKEND_PORT=3001

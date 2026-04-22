@@ -155,7 +155,7 @@ const ICON_PATH = path.join(__dirname, 'assets',
     process.platform === 'win32' ? 'icon.ico' : 'icon.png');
 
 // ─── Normalize WHISPER_URL — strip trailing /transcribe so the call in transcribe.js doesn't duplicate it
-const rawWhisperUrl = process.env.WHISPER_URL || 'http://127.0.0.1:8000';
+const rawWhisperUrl = process.env.WHISPER_URL || 'http://127.0.0.1:9990';
 process.env.WHISPER_URL = rawWhisperUrl.replace(/\/transcribe\/?$/, '');
 
 // Deepgram key from environment (fallback — UI key takes priority)
@@ -213,6 +213,8 @@ const mainSettings = {
     llmCorrectionEnabled: false,
     ollamaModel: 'kimi-k2.5:cloud',
     selectedMicId: '',
+    whisperUrl: process.env.WHISPER_URL || 'http://127.0.0.1:9990',
+    ollamaUrl: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
     // Override defaults with persisted settings (if any)
     ...persistedSettings,
     // Env var takes priority only if it's actually set
@@ -596,7 +598,7 @@ ipcMain.handle('log-error', (_, msg) => {
 // ─── Whisper local (via backend proxy) ───────────────────────
 // Sends the WebM buffer to the Express backend at localhost:3001,
 // which forwards it to the Whisper Docker (JSON or multipart).
-function callWhisperLocal(audioBuffer, language) {
+function callWhisperLocal(audioBuffer, language, whisperUrl) {
     return new Promise((resolve, reject) => {
         const BACKEND_URL = 'http://127.0.0.1:3001';
         const boundary = '----VoixifyBoundary' + Date.now();
@@ -613,15 +615,21 @@ function callWhisperLocal(audioBuffer, language) {
         const body = Buffer.concat([pre, audioBuffer, langField]);
 
         const urlObj = new URL(`${BACKEND_URL}/api/transcribe`);
+        const headers = {
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            'Content-Length': body.length,
+        };
+        // Pass user's custom Whisper URL to the backend so it uses it
+        // instead of the env var set at startup
+        if (whisperUrl) {
+            headers['X-Whisper-URL'] = whisperUrl;
+        }
         const options = {
             hostname: urlObj.hostname,
             port: urlObj.port || 3001,
             path: urlObj.pathname,
             method: 'POST',
-            headers: {
-                'Content-Type': `multipart/form-data; boundary=${boundary}`,
-                'Content-Length': body.length,
-            },
+            headers,
         };
 
         const req = http.request(options, (res) => {
@@ -650,7 +658,7 @@ function callWhisperLocal(audioBuffer, language) {
     });
 }
 
-ipcMain.handle('process-audio', async (_, { audioBase64, duration, lang, deepgramModel, deepgramApiKey, transcriptionSource }) => {
+ipcMain.handle('process-audio', async (_, { audioBase64, duration, lang, deepgramModel, deepgramApiKey, transcriptionSource, whisperUrl, ollamaUrl }) => {
     if (processingAudio) {
         return { success: false, error: 'Déjà en cours de traitement' };
     }
@@ -675,7 +683,9 @@ ipcMain.handle('process-audio', async (_, { audioBase64, duration, lang, deepgra
         let transcript;
         if (src === 'whisper') {
             try {
-                transcript = await callWhisperLocal(webmBuffer, language);
+                const wUrl = whisperUrl || mainSettings.whisperUrl || process.env.WHISPER_URL || 'http://127.0.0.1:9990';
+                console.log('[PROCESS] Using Whisper URL:', wUrl);
+                transcript = await callWhisperLocal(webmBuffer, language, wUrl);
             } catch (err) {
                 if (err.message?.includes('ECONNREFUSED')) {
                     return { success: false, error: 'Whisper local injoignable — vérifiez que le backend Docker est lancé' };

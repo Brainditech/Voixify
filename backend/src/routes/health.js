@@ -3,7 +3,7 @@ const fetch = require('node-fetch');
 const router = express.Router();
 
 router.get('/', async (req, res) => {
-    const whisperUrl = process.env.WHISPER_URL || 'http://127.0.0.1:8000';
+    const whisperUrl = process.env.WHISPER_URL || 'http://127.0.0.1:9990';
     const ollamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
 
     const checks = await Promise.allSettled([

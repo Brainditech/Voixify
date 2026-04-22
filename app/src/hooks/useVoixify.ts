@@ -55,6 +55,8 @@ export function useVoixify() {
                 llmCorrectionEnabled,
                 correctionLevel,
                 ollamaModel,
+                whisperUrl,
+                ollamaUrl,
             } = useVoixifyStore.getState();
 
             // Timeout wrapper so the UI never gets permanently stuck in 'processing'
@@ -65,6 +67,8 @@ export function useVoixify() {
                     deepgramModel,
                     deepgramApiKey,
                     transcriptionSource,
+                    whisperUrl,
+                    ollamaUrl,
                     duration,
                 }),
                 new Promise<never>((_, reject) =>

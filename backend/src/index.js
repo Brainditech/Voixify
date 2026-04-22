@@ -48,7 +48,7 @@ app.use((err, req, res, next) => {
 });
 
 // Normalize WHISPER_URL — strip trailing /transcribe so the call in transcribe.js doesn't duplicate it
-const rawWhisperUrl = process.env.WHISPER_URL || 'http://localhost:8000';
+const rawWhisperUrl = process.env.WHISPER_URL || 'http://localhost:9990';
 process.env.WHISPER_URL = rawWhisperUrl.replace(/\/transcribe\/?$/, '');
 
 const server = app.listen(PORT, '0.0.0.0', () => {
