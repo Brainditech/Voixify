@@ -549,50 +549,87 @@ export default function Settings() {
                                             </ul>
                                         </div>
                                     ) : (
-                                        <div className="model-grid">
-                                            {availableModels.map(m => {
-                                                const isActive = ollamaModel === m.name;
-                                                const meta = [m.parameterSize, formatSize(m.sizeBytes), m.family, m.quantization]
-                                                    .filter(Boolean).join(' • ');
-                                                return (
-                                                    <button
-                                                        key={m.name}
-                                                        type="button"
-                                                        className={`model-btn ${isActive ? 'active' : ''}`}
-                                                        onClick={() => {
-                                                            if (m.isEmbedding) return;
-                                                            setSetting('ollamaModel', m.name, setOllamaModel);
-                                                        }}
-                                                        disabled={m.isEmbedding}
-                                                        style={m.isEmbedding ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                                                        title={m.isEmbedding
-                                                            ? 'Modèle d\'embeddings/OCR — non utilisable pour la correction de texte'
-                                                            : undefined}
-                                                    >
-                                                        <span className="model-label">
-                                                            {m.name}
-                                                            {m.isEmbedding && (
-                                                                <span className="model-badge" style={{ color: '#9ca3af' }}>embed</span>
-                                                            )}
-                                                            {m.isCloud && !m.isEmbedding && (
-                                                                <span className="model-badge">cloud</span>
-                                                            )}
-                                                            {!m.isCloud && !m.isEmbedding && (
-                                                                <span className="model-badge" style={{ color: '#4ade80' }}>local</span>
-                                                            )}
-                                                        </span>
-                                                        <span className="model-desc">{meta || '—'}</span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                        <>
+                                            <select
+                                                className="settings-select"
+                                                value={ollamaModel}
+                                                onChange={e => setSetting('ollamaModel', e.target.value, setOllamaModel)}
+                                            >
+                                                {/* Show the persisted selection even if Ollama doesn't know it yet
+                                                    (e.g. before the first /api/tags response returns) */}
+                                                {!availableModels.some(m => m.name === ollamaModel) && ollamaModel && (
+                                                    <option value={ollamaModel}>{ollamaModel}</option>
+                                                )}
+                                                {availableModels.map(m => {
+                                                    const icon = m.isEmbedding ? '🚫' : m.isCloud ? '☁️' : '📍';
+                                                    const metaShort = [m.parameterSize, formatSize(m.sizeBytes)]
+                                                        .filter(s => s && s !== '—').join(' · ');
+                                                    return (
+                                                        <option
+                                                            key={m.name}
+                                                            value={m.name}
+                                                            disabled={m.isEmbedding}
+                                                        >
+                                                            {icon}  {m.name}{metaShort ? `  —  ${metaShort}` : ''}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+
+                                            {/* Detail card for the current selection */}
+                                            {selectedModelInfo && (
+                                                <div
+                                                    className="model-btn active"
+                                                    style={{
+                                                        marginTop: 10,
+                                                        cursor: 'default',
+                                                        pointerEvents: 'none',
+                                                        borderColor: selectedModelInfo.isEmbedding
+                                                            ? 'rgba(239, 68, 68, 0.35)'
+                                                            : selectedModelInfo.isCloud
+                                                                ? 'rgba(245, 158, 11, 0.35)'
+                                                                : 'rgba(74, 222, 128, 0.3)',
+                                                        background: selectedModelInfo.isEmbedding
+                                                            ? 'rgba(239, 68, 68, 0.06)'
+                                                            : selectedModelInfo.isCloud
+                                                                ? 'rgba(245, 158, 11, 0.06)'
+                                                                : 'rgba(74, 222, 128, 0.08)',
+                                                        color: selectedModelInfo.isEmbedding
+                                                            ? '#ef4444'
+                                                            : selectedModelInfo.isCloud
+                                                                ? '#f59e0b'
+                                                                : '#4ade80',
+                                                    }}
+                                                >
+                                                    <span className="model-label">
+                                                        {selectedModelInfo.name}
+                                                        {selectedModelInfo.isEmbedding && (
+                                                            <span className="model-badge" style={{ color: '#ef4444' }}>embed — inutilisable</span>
+                                                        )}
+                                                        {selectedModelInfo.isCloud && !selectedModelInfo.isEmbedding && (
+                                                            <span className="model-badge">cloud</span>
+                                                        )}
+                                                        {!selectedModelInfo.isCloud && !selectedModelInfo.isEmbedding && (
+                                                            <span className="model-badge" style={{ color: '#4ade80' }}>local</span>
+                                                        )}
+                                                    </span>
+                                                    <span className="model-desc">
+                                                        {[
+                                                            selectedModelInfo.parameterSize && `${selectedModelInfo.parameterSize} paramètres`,
+                                                            formatSize(selectedModelInfo.sizeBytes) !== '—' && formatSize(selectedModelInfo.sizeBytes),
+                                                            selectedModelInfo.family,
+                                                            selectedModelInfo.quantization,
+                                                        ].filter(Boolean).join(' • ') || '—'}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </>
                                     )}
 
                                     {selectedModelInfo?.isEmbedding && (
                                         <p className="settings-hint" style={{ color: '#ef4444' }}>
                                             ⚠ <b>{ollamaModel}</b> est un modèle d'embeddings/OCR —
-                                            la correction ne fonctionnera pas. Sélectionnez un modèle
-                                            de chat (badge <b>local</b>).
+                                            la correction ne fonctionnera pas. Choisissez un modèle <b>📍 local</b>.
                                         </p>
                                     )}
                                     {selectedModelInfo?.isCloud && (
