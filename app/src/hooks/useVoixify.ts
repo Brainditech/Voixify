@@ -68,8 +68,6 @@ export function useVoixify() {
                     deepgramApiKey,
                     transcriptionSource,
                     whisperUrl,
-                    ollamaUrl,
-                    duration,
                 }),
                 new Promise<never>((_, reject) =>
                     setTimeout(() => reject(new Error('Transcription timeout (30s) — vérifiez votre connexion')), PROCESS_TIMEOUT_MS)
@@ -92,6 +90,7 @@ export function useVoixify() {
                                 lang,
                                 model: ollamaModel,
                                 level: correctionLevel,
+                                ollamaUrl,
                             }),
                         });
 

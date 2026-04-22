@@ -16,6 +16,7 @@ const HOTKEY_OPTIONS = [
 const LANG_OPTIONS = [
     { label: '🇫🇷  Français', value: 'fr' },
     { label: '🇬🇧  English', value: 'en' },
+    { label: '🌐  Auto', value: 'auto' },
 ];
 
 const DEEPGRAM_MODELS = [

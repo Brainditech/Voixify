@@ -69,7 +69,7 @@
             }
         ],
         "directories": {
-            "output": "dist-electron"
+            "output": "dist-electron-v2"
         }
     }
 }

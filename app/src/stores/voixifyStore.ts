@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware';
 export type RecordingState = 'idle' | 'recording' | 'processing' | 'correcting' | 'done' | 'error';
 export type CorrectionLevel = 'off' | 'minimal' | 'standard' | 'advanced';
 export type AppMode = 'dictate' | 'ask';
-export type Lang = 'fr' | 'en';
+export type Lang = 'fr' | 'en' | 'auto';
 export type TranscriptionSource = 'deepgram' | 'whisper';
 
 export interface HistoryItem {
@@ -90,7 +90,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             errorMessage: null,
             toastMessage: null,
 
-            lang: 'fr',
+            lang: 'auto',
             mode: 'dictate',
             correctionLevel: 'standard',
             hotkey: 'CommandOrControl+Space',
@@ -138,8 +138,8 @@ export const useVoixifyStore = create<VoixifyState>()(
             reset: () => set({ recordingState: 'idle', rawTranscript: '', correctedText: '', errorMessage: null, toastMessage: null }),
         }),
         {
-            name: 'voixify-v4',
-            version: 4,
+            name: 'voixify-v5',
+            version: 5,
             migrate: (persistedState: any, version: number) => {
                 let state = persistedState;
                 if (version < 2) {
@@ -157,13 +157,19 @@ export const useVoixifyStore = create<VoixifyState>()(
                     };
                 }
                 if (version < 4) {
-                    // Migrate whisperUrl from old default port 8000 to new port 9990
                     const oldUrl = state?.whisperUrl || '';
                     if (!oldUrl || oldUrl === 'http://127.0.0.1:8000' || oldUrl === 'http://localhost:8000') {
                         state = {
                             ...state,
                             whisperUrl: 'http://127.0.0.1:9990',
                         };
+                    }
+                }
+                if (version < 5) {
+                    // No forced migration — keep explicit fr/en if user picked one.
+                    // Only patch missing values so fresh installs inherit 'auto'.
+                    if (!state?.lang) {
+                        state = { ...state, lang: 'auto' };
                     }
                 }
                 return state;

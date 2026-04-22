@@ -3,7 +3,7 @@ node_modules/
 
 # Build output
 app/dist/
-app/dist-electron/
+app/dist-electron*/
 backend/dist/
 
 # Environment (contains API keys and secrets)

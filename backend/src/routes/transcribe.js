@@ -2,9 +2,6 @@ const express = require('express');
 const multer = require('multer');
 const FormData = require('form-data');
 const fetch = require('node-fetch');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 const router = express.Router();
 
 // ─── Constants ───────────────────────────────────────────────
@@ -18,7 +15,7 @@ const upload = multer({
 });
 
 // Multer error handler
-function handleMulterError(err, req, res, next) {
+function handleMulterError(err, _req, res, next) {
     if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
             return res.status(413).json({
@@ -58,10 +55,15 @@ async function callWhisperJson(whisperUrl, audioBuffer, lang) {
     const mediaUrl = `http://host.docker.internal:3001/api/transcribe/temp/${id}`;
 
     try {
-        const body = JSON.stringify({
+        const payload = {
             media_url: mediaUrl,
             metadata: `lang=${lang}`
-        });
+        };
+        // 'auto' (or falsy) → omit the field so Whisper auto-detects.
+        if (lang && lang !== 'auto') {
+            payload.language = lang;
+        }
+        const body = JSON.stringify(payload);
 
         const res = await fetch(`${whisperUrl}/transcribe`, {
             method: 'POST',
@@ -87,7 +89,9 @@ async function callWhisperMultipart(whisperUrl, audioBuffer, lang) {
         filename: 'audio.webm',
         contentType: 'audio/webm',
     });
-    formData.append('language', lang);
+    if (lang && lang !== 'auto') {
+        formData.append('language', lang);
+    }
 
     const res = await fetch(`${whisperUrl}/transcribe`, {
         method: 'POST',
@@ -112,7 +116,7 @@ router.post('/', upload.single('audio'), handleMulterError, async (req, res) => 
 
         // Dynamic URL: prefer header from Electron main process, then env var, then default
         const whisperUrl = req.headers['x-whisper-url'] || process.env.WHISPER_URL || 'http://127.0.0.1:9990';
-        const lang = req.body.lang || 'fr';
+        const lang = req.body.lang || 'auto';
 
         console.log(`[TRANSCRIBE] ${req.file.size} bytes → ${whisperUrl} (lang: ${lang})`);
 

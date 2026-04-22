@@ -205,9 +205,9 @@ function savePersistedSettings(settings) {
 const persistedSettings = loadPersistedSettings();
 const mainSettings = {
     transcriptionSource: 'deepgram',
-    lang: 'fr',
+    lang: 'auto',
     deepgramModel: 'nova-3',
-    deepgramApiKey: DEEPGRAM_KEY_ENV,
+    deepgramApiKey: '',
     correctionLevel: 'off',
     autopasteEnabled: true,
     llmCorrectionEnabled: false,
@@ -215,11 +215,14 @@ const mainSettings = {
     selectedMicId: '',
     whisperUrl: process.env.WHISPER_URL || 'http://127.0.0.1:9990',
     ollamaUrl: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
-    // Override defaults with persisted settings (if any)
+    // Persisted settings (from disk) override defaults.
     ...persistedSettings,
-    // Env var takes priority only if it's actually set
-    ...(DEEPGRAM_KEY_ENV ? { deepgramApiKey: DEEPGRAM_KEY_ENV } : {}),
 };
+// .env is a FALLBACK only — never overrides a key the user typed in the UI.
+// Without this rule, setting DEEPGRAM_KEY in .env made the UI field silently useless.
+if (!mainSettings.deepgramApiKey && DEEPGRAM_KEY_ENV) {
+    mainSettings.deepgramApiKey = DEEPGRAM_KEY_ENV;
+}
 
 // ─── WebM repair ────────────────────────────────────────────
 function fixWebmBuffer(buf) {
@@ -559,7 +562,12 @@ async function callDeepgram(audioBuffer, language, model = 'nova-3', apiKey = ''
         throw new Error('DEEPGRAM_KEY non configurée — ajoutez-la dans Paramètres > Transcription');
     }
 
-    const url = `https://api.deepgram.com/v1/listen?model=${model}&language=${language}&smart_format=true`;
+    // Deepgram Nova-3 accepts 'multi' for automatic detection across languages.
+    // For other models, 'multi' is not supported — fall back to 'en' so the call doesn't 400.
+    const dgLang = language === 'auto'
+        ? (model === 'nova-3' ? 'multi' : 'en')
+        : language;
+    const url = `https://api.deepgram.com/v1/listen?model=${model}&language=${dgLang}&smart_format=true`;
 
     const res = await httpPost(url, {
         'Authorization': `Token ${key}`,
@@ -658,7 +666,7 @@ function callWhisperLocal(audioBuffer, language, whisperUrl) {
     });
 }
 
-ipcMain.handle('process-audio', async (_, { audioBase64, duration, lang, deepgramModel, deepgramApiKey, transcriptionSource, whisperUrl, ollamaUrl }) => {
+ipcMain.handle('process-audio', async (_, { audioBase64, lang, deepgramModel, deepgramApiKey, transcriptionSource, whisperUrl }) => {
     if (processingAudio) {
         return { success: false, error: 'Déjà en cours de traitement' };
     }
@@ -764,6 +772,11 @@ const vbsPastePath = path.join(os.tmpdir(), 'vx_paste.vbs');
 ipcMain.handle('paste-text', (_, text) => {
     clipboard.writeText(text);
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+    // Respect the "Collage automatique" toggle: when OFF, only copy to clipboard.
+    if (!mainSettings.autopasteEnabled) {
+        console.log('[PASTE] Autopaste disabled — text copied to clipboard only');
+        return;
+    }
     fs.writeFileSync(vbsPastePath, 'WScript.Sleep 200\r\nCreateObject("WScript.Shell").SendKeys "^v"', 'utf8');
     exec(`wscript //nologo "${vbsPastePath}"`, (err) => {
         if (err) console.error('[PASTE]', err.message);
