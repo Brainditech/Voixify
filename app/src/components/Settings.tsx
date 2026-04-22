@@ -76,6 +76,16 @@ export default function Settings() {
     const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
     const apiKeySaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // Ollama pull state — tracks an in-flight `ollama pull` streamed over HTTP.
+    const [pullState, setPullState] = useState<{
+        name: string;
+        percent: number;   // 0..100 for the current layer (or 0 if unknown)
+        status: string;    // latest human-readable status from Ollama
+        error: string | null;
+    } | null>(null);
+    const [customPullName, setCustomPullName] = useState('');
+    const pullAbortRef = React.useRef<AbortController | null>(null);
+
     // Enumerate audio input devices
     async function refreshAudioDevices() {
         try {
@@ -188,6 +198,84 @@ export default function Settings() {
         } finally {
             setModelsLoading(false);
         }
+    }
+
+    async function pullModel(modelName: string) {
+        const name = modelName.trim();
+        if (!name || pullState) return;
+        const baseUrl = useVoixifyStore.getState().ollamaUrl || 'http://localhost:11434';
+        const controller = new AbortController();
+        pullAbortRef.current = controller;
+        setPullState({ name, percent: 0, status: 'Initialisation…', error: null });
+
+        try {
+            const res = await fetch(`${baseUrl}/api/pull`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, stream: true }),
+                signal: controller.signal,
+            });
+            if (!res.ok || !res.body) {
+                throw new Error(`HTTP ${res.status} — modèle introuvable ou Ollama indisponible`);
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let succeeded = false;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const msg = JSON.parse(line);
+                        if (msg.error) throw new Error(msg.error);
+                        const percent = msg.total && msg.completed
+                            ? Math.round((msg.completed / msg.total) * 100)
+                            : undefined;
+                        setPullState(s => s ? {
+                            ...s,
+                            percent: percent ?? s.percent,
+                            status: msg.status || s.status,
+                        } : null);
+                        if (msg.status === 'success') succeeded = true;
+                    } catch (parseErr: any) {
+                        // Rethrow real errors; ignore garbled partial lines
+                        if (parseErr?.message && !parseErr.message.startsWith('Unexpected')) {
+                            throw parseErr;
+                        }
+                    }
+                }
+            }
+
+            if (succeeded) {
+                setPullState(null);
+                setCustomPullName('');
+                fetchOllamaModels();
+            } else {
+                setPullState(s => s ? { ...s, error: 'Téléchargement interrompu avant la fin' } : null);
+                setTimeout(() => setPullState(null), 4000);
+            }
+        } catch (err: any) {
+            if (err.name === 'AbortError') {
+                setPullState(null);
+            } else {
+                setPullState(s => s ? { ...s, error: err.message || 'Erreur inconnue' } : null);
+                setTimeout(() => setPullState(null), 4000);
+            }
+        } finally {
+            pullAbortRef.current = null;
+        }
+    }
+
+    function cancelPull() {
+        pullAbortRef.current?.abort();
     }
 
     async function applyHotkey(key: string) {
@@ -643,6 +731,112 @@ export default function Settings() {
                                         <p className="settings-hint">
                                             Modèle local — 1ère correction ~5s (chargement VRAM), suivantes ~1–3s.
                                         </p>
+                                    )}
+                                </section>
+                            )}
+
+                            {/* Télécharger un nouveau modèle Ollama */}
+                            {llmCorrectionEnabled && (
+                                <section className="settings-section">
+                                    <h2 className="settings-section-title">Télécharger un modèle</h2>
+
+                                    {pullState ? (
+                                        <div style={{
+                                            padding: 12,
+                                            borderRadius: 8,
+                                            background: 'rgba(74, 222, 128, 0.06)',
+                                            border: '1px solid rgba(74, 222, 128, 0.25)',
+                                        }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                                <span style={{ fontSize: 13, fontWeight: 500, color: '#fff' }}>
+                                                    📥 {pullState.name}
+                                                </span>
+                                                <span style={{ fontSize: 12, color: '#4ade80', fontVariantNumeric: 'tabular-nums' }}>
+                                                    {pullState.error ? '—' : `${pullState.percent}%`}
+                                                </span>
+                                            </div>
+                                            <div style={{
+                                                height: 6,
+                                                borderRadius: 3,
+                                                background: 'rgba(255, 255, 255, 0.08)',
+                                                overflow: 'hidden',
+                                                marginBottom: 8,
+                                            }}>
+                                                <div style={{
+                                                    height: '100%',
+                                                    width: `${pullState.percent}%`,
+                                                    background: pullState.error ? '#ef4444' : '#4ade80',
+                                                    transition: 'width 200ms ease-out',
+                                                }} />
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: 11, color: pullState.error ? '#ef4444' : 'rgba(255,255,255,0.55)' }}>
+                                                    {pullState.error || pullState.status}
+                                                </span>
+                                                {!pullState.error && (
+                                                    <button
+                                                        type="button"
+                                                        className="pill-btn"
+                                                        style={{ padding: '3px 10px', fontSize: 11 }}
+                                                        onClick={cancelPull}
+                                                    >
+                                                        Annuler
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <p className="settings-hint" style={{ marginBottom: 8 }}>
+                                                Modèles légers recommandés pour la correction :
+                                            </p>
+                                            <div className="pill-group" style={{ flexWrap: 'wrap', gap: 6 }}>
+                                                {RECOMMENDED_LOCAL_MODELS
+                                                    .filter(r => !availableModels.some(m => m.name.startsWith(r.pull.split(':')[0])))
+                                                    .map(r => (
+                                                        <button
+                                                            key={r.pull}
+                                                            type="button"
+                                                            className="pill-btn"
+                                                            onClick={() => pullModel(r.pull)}
+                                                            title={r.why}
+                                                        >
+                                                            📥&nbsp; {r.pull}
+                                                        </button>
+                                                    ))}
+                                                {RECOMMENDED_LOCAL_MODELS
+                                                    .every(r => availableModels.some(m => m.name.startsWith(r.pull.split(':')[0]))) && (
+                                                        <span className="settings-hint" style={{ color: '#4ade80' }}>
+                                                            ✓ Tous les modèles recommandés sont déjà installés
+                                                        </span>
+                                                    )}
+                                            </div>
+                                            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                                                <input
+                                                    className="settings-input"
+                                                    style={{ flex: 1 }}
+                                                    value={customPullName}
+                                                    onChange={e => setCustomPullName(e.target.value)}
+                                                    onKeyDown={e => { if (e.key === 'Enter' && customPullName.trim()) pullModel(customPullName); }}
+                                                    placeholder="Autre modèle (ex: mistral:7b, gemma2:2b…)"
+                                                    spellCheck={false}
+                                                    autoComplete="off"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    className="pill-btn"
+                                                    onClick={() => pullModel(customPullName)}
+                                                    disabled={!customPullName.trim()}
+                                                    style={{ opacity: customPullName.trim() ? 1 : 0.4 }}
+                                                >
+                                                    Télécharger
+                                                </button>
+                                            </div>
+                                            <p className="settings-hint" style={{ marginTop: 6 }}>
+                                                Le téléchargement peut prendre plusieurs minutes selon la taille du modèle
+                                                et votre connexion (2–8 GB typiquement).
+                                            </p>
+                                        </>
                                     )}
                                 </section>
                             )}
