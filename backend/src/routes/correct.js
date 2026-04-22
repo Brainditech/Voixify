@@ -81,10 +81,15 @@ router.post('/', async (req, res) => {
                 { role: 'user', content: userPrompt }
             ],
             stream: false,
+            // keep_alive keeps the model loaded in VRAM between requests — avoids
+            // the cold-load penalty (~3–10s) on every dictation correction.
+            keep_alive: '5m',
             options: {
                 temperature: 0.1,
                 top_p: 0.85,
-                num_predict: 1024
+                // Cap output at roughly 2× input length — dictation corrections
+                // are never longer than the original text. Was 1024 (too high).
+                num_predict: Math.min(text.length * 3, 512),
             }
         };
 

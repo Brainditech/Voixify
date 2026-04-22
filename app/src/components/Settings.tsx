@@ -74,24 +74,29 @@ export default function Settings() {
     useEffect(() => {
         async function syncWithMain() {
             try {
-                // Charger les paramètres persistés depuis le main process (fichier JSON).
-                // Le fichier JSON est la SOURCE DE VÉRITÉ pour le raccourci et la clé API —
-                // il peut différer du localStorage (Zustand) si l'utilisateur a changé
-                // un paramètre puis redémarré l'app.
+                // main process settings.json is the source of truth.
+                // We fetch it first, then push the merged state back so
+                // mainSettings stays consistent with what the UI shows.
                 const saved = await api?.getSettings();
-                if (saved) {
-                    // Toujours prendre le raccourci du JSON — pas du localStorage
-                    // C'est le fix du bug : hotkey affiché ≠ hotkey actif au redémarrage
-                    if (saved.hotkey) setHotkey(saved.hotkey);
-                    if (saved.deepgramApiKey) setDeepgramApiKey(saved.deepgramApiKey);
-                    if (saved.selectedMicId) setSelectedMicId(saved.selectedMicId);
-                }
 
-                await api?.updateSettings({
-                    transcriptionSource, lang, deepgramModel, deepgramApiKey,
+                // Build the merged settings: start from current Zustand values,
+                // override only the fields where the main process has authoritative
+                // data (hotkey, deepgramApiKey, selectedMicId) so we don't push
+                // a stale Zustand snapshot on top of the user's last change.
+                const merged = {
+                    transcriptionSource, lang, deepgramModel,
+                    deepgramApiKey: (saved?.deepgramApiKey || deepgramApiKey),
                     correctionLevel, llmCorrectionEnabled,
-                    autopasteEnabled, ollamaModel, selectedMicId,
-                });
+                    autopasteEnabled, ollamaModel,
+                    selectedMicId: (saved?.selectedMicId || selectedMicId),
+                    whisperUrl, ollamaUrl,
+                };
+
+                if (saved?.hotkey) setHotkey(saved.hotkey);
+                if (saved?.deepgramApiKey) setDeepgramApiKey(saved.deepgramApiKey);
+                if (saved?.selectedMicId) setSelectedMicId(saved.selectedMicId);
+
+                await api?.updateSettings(merged);
             } catch { }
         }
         syncWithMain();
@@ -485,7 +490,7 @@ export default function Settings() {
                                     </div>
                                     <button
                                         className={`toggle ${autopasteEnabled ? 'on' : 'off'}`}
-                                        onClick={() => setAutopasteEnabled(!autopasteEnabled)}
+                                        onClick={() => setSetting('autopasteEnabled', !autopasteEnabled, setAutopasteEnabled)}
                                     >
                                         <span className="toggle-thumb" />
                                     </button>
