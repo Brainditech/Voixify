@@ -1,6 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { useVoixifyStore } from '../stores/voixifyStore';
+import { useVoixifyStore, OllamaModelInfo } from '../stores/voixifyStore';
 import History from './History';
+
+// Ollama model families that are for embeddings/OCR, NOT text generation.
+// Selecting them for correction silently fails at chat time.
+const NON_CHAT_FAMILIES = new Set(['nomic-bert', 'bge', 'minilm', 'glmocr', 'clip']);
+
+function formatSize(bytes: number): string {
+    if (!bytes || bytes < 1024 * 1024) return '—';
+    const gb = bytes / (1024 ** 3);
+    if (gb >= 1) return `${gb.toFixed(1)} GB`;
+    return `${Math.round(bytes / (1024 ** 2))} MB`;
+}
+
+const RECOMMENDED_LOCAL_MODELS = [
+    { pull: 'llama3.2:3b', why: 'Rapide, excellente correction FR + EN' },
+    { pull: 'qwen2.5:3b', why: 'Très bonne qualité, léger' },
+    { pull: 'phi3.5', why: 'Microsoft, équilibré' },
+];
 
 const api = (window as any).voixify;
 
@@ -123,7 +140,7 @@ export default function Settings() {
                 (u, i, arr) => arr.indexOf(u) === i // dédoublonner
             );
 
-            let models: string[] = [];
+            let models: OllamaModelInfo[] = [];
             for (const url of urlsToTry) {
                 try {
                     const res = await fetch(`${url}/api/tags`, {
@@ -131,7 +148,20 @@ export default function Settings() {
                     });
                     if (res.ok) {
                         const data = await res.json();
-                        models = (data.models || []).map((m: any) => m.name || m).filter(Boolean);
+                        models = (data.models || []).map((m: any): OllamaModelInfo => {
+                            const name: string = m.name || m.model || '';
+                            const d = m.details || {};
+                            const family: string = d.family || '';
+                            return {
+                                name,
+                                sizeBytes: m.size || 0,
+                                parameterSize: d.parameter_size || '',
+                                family,
+                                quantization: d.quantization_level || '',
+                                isCloud: name.endsWith(':cloud') || !!m.remote_host,
+                                isEmbedding: NON_CHAT_FAMILIES.has(family),
+                            };
+                        }).filter((m: OllamaModelInfo) => m.name);
                         if (models.length > 0) break; // succès, on arrête
                     }
                 } catch {
@@ -140,6 +170,14 @@ export default function Settings() {
             }
 
             if (models.length > 0) {
+                // Sort: local chat models first, then cloud, then embeddings last
+                models.sort((a, b) => {
+                    const rank = (m: OllamaModelInfo) =>
+                        m.isEmbedding ? 3 : m.isCloud ? 2 : 1;
+                    const r = rank(a) - rank(b);
+                    if (r !== 0) return r;
+                    return a.name.localeCompare(b.name);
+                });
                 setAvailableModels(models);
             } else if (attempt < 3) {
                 // Ollama n'est peut-être pas encore prêt — retry dans 3s (max 3 tentatives)
@@ -159,7 +197,7 @@ export default function Settings() {
         setTimeout(() => setHotkeyStatus('idle'), 2000);
     }
 
-    const ollamaModels = availableModels.length > 0 ? availableModels : [ollamaModel];
+    const selectedModelInfo = availableModels.find(m => m.name === ollamaModel);
 
     return (
         <div className="settings">
@@ -478,28 +516,95 @@ export default function Settings() {
                             {/* Modèle Ollama */}
                             {llmCorrectionEnabled && (
                                 <section className="settings-section">
-                                    <h2 className="settings-section-title">
-                                        Modèle IA locale (Ollama)
-                                        {modelsLoading && <span className="settings-badge">chargement…</span>}
-                                    </h2>
-                                    <select
-                                        className="settings-select"
-                                        value={ollamaModel}
-                                        onChange={e => setSetting('ollamaModel', e.target.value, setOllamaModel)}
-                                    >
-                                        {ollamaModels.map(m => (
-                                            <option key={m} value={m}>{m}</option>
-                                        ))}
-                                    </select>
-                                    {ollamaModel.endsWith(':cloud') ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                        <h2 className="settings-section-title" style={{ marginBottom: 0 }}>
+                                            Modèle IA locale (Ollama)
+                                            {modelsLoading && <span className="settings-badge">chargement…</span>}
+                                        </h2>
+                                        <button
+                                            type="button"
+                                            className="pill-btn"
+                                            style={{ padding: '4px 10px', fontSize: 12 }}
+                                            onClick={() => fetchOllamaModels()}
+                                            disabled={modelsLoading}
+                                            title="Rafraîchir la liste des modèles Ollama"
+                                        >
+                                            ↻&nbsp; Rafraîchir
+                                        </button>
+                                    </div>
+
+                                    {availableModels.length === 0 && !modelsLoading ? (
+                                        <div className="settings-hint" style={{ lineHeight: 1.6 }}>
+                                            <p style={{ marginBottom: 8 }}>
+                                                ⚠ Aucun modèle détecté. Vérifiez qu'Ollama est lancé
+                                                sur <code>{ollamaUrl}</code>.
+                                            </p>
+                                            <p style={{ marginBottom: 4 }}>Modèles recommandés pour la correction :</p>
+                                            <ul style={{ margin: 0, paddingLeft: 18 }}>
+                                                {RECOMMENDED_LOCAL_MODELS.map(r => (
+                                                    <li key={r.pull}>
+                                                        <code>ollama pull {r.pull}</code> — {r.why}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    ) : (
+                                        <div className="model-grid">
+                                            {availableModels.map(m => {
+                                                const isActive = ollamaModel === m.name;
+                                                const meta = [m.parameterSize, formatSize(m.sizeBytes), m.family, m.quantization]
+                                                    .filter(Boolean).join(' • ');
+                                                return (
+                                                    <button
+                                                        key={m.name}
+                                                        type="button"
+                                                        className={`model-btn ${isActive ? 'active' : ''}`}
+                                                        onClick={() => {
+                                                            if (m.isEmbedding) return;
+                                                            setSetting('ollamaModel', m.name, setOllamaModel);
+                                                        }}
+                                                        disabled={m.isEmbedding}
+                                                        style={m.isEmbedding ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                                                        title={m.isEmbedding
+                                                            ? 'Modèle d\'embeddings/OCR — non utilisable pour la correction de texte'
+                                                            : undefined}
+                                                    >
+                                                        <span className="model-label">
+                                                            {m.name}
+                                                            {m.isEmbedding && (
+                                                                <span className="model-badge" style={{ color: '#9ca3af' }}>embed</span>
+                                                            )}
+                                                            {m.isCloud && !m.isEmbedding && (
+                                                                <span className="model-badge">cloud</span>
+                                                            )}
+                                                            {!m.isCloud && !m.isEmbedding && (
+                                                                <span className="model-badge" style={{ color: '#4ade80' }}>local</span>
+                                                            )}
+                                                        </span>
+                                                        <span className="model-desc">{meta || '—'}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
+                                    {selectedModelInfo?.isEmbedding && (
+                                        <p className="settings-hint" style={{ color: '#ef4444' }}>
+                                            ⚠ <b>{ollamaModel}</b> est un modèle d'embeddings/OCR —
+                                            la correction ne fonctionnera pas. Sélectionnez un modèle
+                                            de chat (badge <b>local</b>).
+                                        </p>
+                                    )}
+                                    {selectedModelInfo?.isCloud && (
                                         <p className="settings-hint" style={{ color: '#f59e0b' }}>
                                             ⚠ Modèle <b>:cloud</b> — inférence distante (latence réseau + modèle géant).
                                             Pour une correction en 1–3s, préférez un modèle local léger
-                                            (ex: <code>llama3.2:3b</code>, <code>qwen2.5:3b</code>, <code>phi3.5</code>).
+                                            (ex: <code>llama3.2:3b</code>, <code>qwen2.5:3b</code>).
                                         </p>
-                                    ) : (
+                                    )}
+                                    {selectedModelInfo && !selectedModelInfo.isCloud && !selectedModelInfo.isEmbedding && (
                                         <p className="settings-hint">
-                                            Modèle local — première correction ~5s (chargement en VRAM), suivantes ~1–3s.
+                                            Modèle local — 1ère correction ~5s (chargement VRAM), suivantes ~1–3s.
                                         </p>
                                     )}
                                 </section>

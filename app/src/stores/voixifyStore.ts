@@ -23,6 +23,16 @@ export interface ServiceStatus {
     ollama: 'online' | 'offline' | 'checking';
 }
 
+export interface OllamaModelInfo {
+    name: string;
+    sizeBytes: number;
+    parameterSize: string; // "3.2B", "36.0B", "" if unknown (cloud)
+    family: string;         // "llama", "qwen", "phi", "gptoss"…
+    quantization: string;   // "Q4_K_M", "F16"…
+    isCloud: boolean;       // ends with :cloud (remote inference)
+    isEmbedding: boolean;   // not usable for chat/correction
+}
+
 interface VoixifyState {
     recordingState: RecordingState;
     rawTranscript: string;
@@ -50,7 +60,7 @@ interface VoixifyState {
     showSettings: boolean;
     showHistory: boolean;
     serviceStatus: ServiceStatus;
-    availableModels: string[];
+    availableModels: OllamaModelInfo[];
     history: HistoryItem[];
 
     setRecordingState: (s: RecordingState) => void;
@@ -74,7 +84,7 @@ interface VoixifyState {
     setShowSettings: (v: boolean) => void;
     setShowHistory: (v: boolean) => void;
     setServiceStatus: (s: Partial<ServiceStatus>) => void;
-    setAvailableModels: (m: string[]) => void;
+    setAvailableModels: (m: OllamaModelInfo[]) => void;
     addToHistory: (item: HistoryItem) => void;
     deleteHistoryItem: (id: string) => void;
     clearHistory: () => void;
