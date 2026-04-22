@@ -55,7 +55,9 @@ export default function Settings() {
     const [hotkeyStatus, setHotkeyStatus] = useState<'idle' | 'ok' | 'error'>('idle');
     const [modelsLoading, setModelsLoading] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
+    const [apiKeySaved, setApiKeySaved] = useState(false);
     const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+    const apiKeySaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Enumerate audio input devices
     async function refreshAudioDevices() {
@@ -296,8 +298,17 @@ export default function Settings() {
                                             type={showApiKey ? 'text' : 'password'}
                                             value={deepgramApiKey}
                                             onChange={e => {
-                                                setDeepgramApiKey(e.target.value);
-                                                api?.updateSettings({ deepgramApiKey: e.target.value }).catch(() => { });
+                                                const val = e.target.value;
+                                                setDeepgramApiKey(val);
+                                                if (apiKeySaveTimer.current) clearTimeout(apiKeySaveTimer.current);
+                                                apiKeySaveTimer.current = setTimeout(() => {
+                                                    api?.updateSettings({ deepgramApiKey: val })
+                                                        .then(() => {
+                                                            setApiKeySaved(true);
+                                                            setTimeout(() => setApiKeySaved(false), 2500);
+                                                        })
+                                                        .catch(() => {});
+                                                }, 400);
                                             }}
                                             placeholder="Collez votre clé API Deepgram ici…"
                                             spellCheck={false}
@@ -323,10 +334,12 @@ export default function Settings() {
                                             )}
                                         </button>
                                     </div>
-                                    <p className="settings-hint">
-                                        {deepgramApiKey
-                                            ? '✓ Clé configurée'
-                                            : '⚠ Aucune clé — la transcription ne fonctionnera pas'}
+                                    <p className="settings-hint" style={{ color: apiKeySaved ? '#4ade80' : undefined }}>
+                                        {apiKeySaved
+                                            ? '✓ Clé sauvegardée dans le profil'
+                                            : deepgramApiKey
+                                                ? '✓ Clé configurée'
+                                                : '⚠ Aucune clé — la transcription ne fonctionnera pas'}
                                     </p>
                                 </section>
                             )}
