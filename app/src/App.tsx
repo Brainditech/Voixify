@@ -43,6 +43,7 @@ function Pill() {
             if (saved.autopasteEnabled !== undefined) store.setAutopasteEnabled(saved.autopasteEnabled);
             if (saved.ollamaModel) store.setOllamaModel(saved.ollamaModel);
             if (saved.selectedMicId) store.setSelectedMicId(saved.selectedMicId);
+            if (saved.hotkeyMode) store.setHotkeyMode(saved.hotkeyMode);
         }).catch(() => { });
 
         // Sync les paramètres non-critiques depuis Zustand → main process.
@@ -63,6 +64,7 @@ function Pill() {
             selectedMicId: state.selectedMicId,
             whisperUrl: state.whisperUrl,
             ollamaUrl: state.ollamaUrl,
+            hotkeyMode: state.hotkeyMode,
         }).catch(() => { });
 
         api.onStateChange((s: string) => {
@@ -90,6 +92,7 @@ function Pill() {
             if (settings.selectedMicId !== undefined) store.setSelectedMicId(settings.selectedMicId);
             if (settings.whisperUrl !== undefined) store.setWhisperUrl(settings.whisperUrl);
             if (settings.ollamaUrl !== undefined) store.setOllamaUrl(settings.ollamaUrl);
+            if (settings.hotkeyMode !== undefined) store.setHotkeyMode(settings.hotkeyMode);
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);

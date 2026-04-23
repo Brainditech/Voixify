@@ -6,6 +6,7 @@ export type CorrectionLevel = 'off' | 'minimal' | 'standard' | 'advanced';
 export type AppMode = 'dictate' | 'ask';
 export type Lang = 'fr' | 'en' | 'auto';
 export type TranscriptionSource = 'deepgram' | 'whisper';
+export type HotkeyMode = 'hold' | 'toggle';
 
 export interface HistoryItem {
     id: string;
@@ -45,6 +46,7 @@ interface VoixifyState {
     mode: AppMode;
     correctionLevel: CorrectionLevel;
     hotkey: string;
+    hotkeyMode: HotkeyMode;
     ollamaModel: string;
     deepgramModel: string;
     deepgramApiKey: string;
@@ -72,6 +74,7 @@ interface VoixifyState {
     setMode: (m: AppMode) => void;
     setCorrectionLevel: (l: CorrectionLevel) => void;
     setHotkey: (k: string) => void;
+    setHotkeyMode: (m: HotkeyMode) => void;
     setOllamaModel: (m: string) => void;
     setDeepgramModel: (m: string) => void;
     setDeepgramApiKey: (k: string) => void;
@@ -104,6 +107,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             mode: 'dictate',
             correctionLevel: 'standard',
             hotkey: 'CommandOrControl+Space',
+            hotkeyMode: 'hold',
             ollamaModel: 'kimi-k2.5:cloud',
             deepgramModel: 'nova-3',
             deepgramApiKey: '',
@@ -129,6 +133,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             setMode: (m) => set({ mode: m }),
             setCorrectionLevel: (l) => set({ correctionLevel: l }),
             setHotkey: (k) => set({ hotkey: k }),
+            setHotkeyMode: (m) => set({ hotkeyMode: m }),
             setOllamaModel: (m) => set({ ollamaModel: m }),
             setDeepgramModel: (m) => set({ deepgramModel: m }),
             setDeepgramApiKey: (k) => set({ deepgramApiKey: k }),
@@ -148,8 +153,8 @@ export const useVoixifyStore = create<VoixifyState>()(
             reset: () => set({ recordingState: 'idle', rawTranscript: '', correctedText: '', errorMessage: null, toastMessage: null }),
         }),
         {
-            name: 'voixify-v5',
-            version: 5,
+            name: 'voixify-v6',
+            version: 6,
             migrate: (persistedState: any, version: number) => {
                 let state = persistedState;
                 if (version < 2) {
@@ -182,11 +187,15 @@ export const useVoixifyStore = create<VoixifyState>()(
                         state = { ...state, lang: 'auto' };
                     }
                 }
+                if (version < 6) {
+                    state = { ...state, hotkeyMode: state?.hotkeyMode || 'hold' };
+                }
                 return state;
             },
             partialize: (s) => ({
                 lang: s.lang, mode: s.mode, correctionLevel: s.correctionLevel,
-                hotkey: s.hotkey, ollamaModel: s.ollamaModel, deepgramModel: s.deepgramModel, deepgramApiKey: s.deepgramApiKey,
+                hotkey: s.hotkey, hotkeyMode: s.hotkeyMode,
+                ollamaModel: s.ollamaModel, deepgramModel: s.deepgramModel, deepgramApiKey: s.deepgramApiKey,
                 transcriptionSource: s.transcriptionSource, autopasteEnabled: s.autopasteEnabled,
                 llmCorrectionEnabled: s.llmCorrectionEnabled, selectedMicId: s.selectedMicId,
                 whisperUrl: s.whisperUrl,

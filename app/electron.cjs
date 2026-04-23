@@ -215,6 +215,7 @@ const mainSettings = {
     selectedMicId: '',
     whisperUrl: process.env.WHISPER_URL || 'http://127.0.0.1:9990',
     ollamaUrl: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
+    hotkeyMode: 'hold', // 'hold' = push-to-talk (legacy) | 'toggle' = press-once-to-start-press-again-to-stop
     // Persisted settings (from disk) override defaults.
     ...persistedSettings,
 };
@@ -404,9 +405,14 @@ function triggerStop() {
 
 }
 
-// ─── Hotkey registration — hold-to-talk mode ─────────────────
+// ─── Hotkey registration — supports two modes ────────────────
+// 'hold'   : push-to-talk. Maintain the key to record; releasing it stops and transcribes.
+// 'toggle' : press-once-to-start, press-again-to-stop. Hands-free between the two presses.
 let holdTimer = null;
 let repeatCount = 0;
+// Toggle-mode: timestamp of the previous callback, used to distinguish a
+// fresh human press (gap > ~250 ms) from Windows key-repeat (~30 ms intervals).
+let toggleLastCallbackTime = 0;
 
 // Defensive re-registration: called on power resume, screen unlock, and heartbeat
 // NOTE: we do NOT reset processingAudio / isRecordingActive here because the
@@ -430,49 +436,20 @@ function ensureHotkeyRegistered() {
     return success;
 }
 
-function registerHotkey(key) {
-    globalShortcut.unregisterAll();
-    currentHotkey = key;
-    if (tray) tray.setToolTip('Voixify');
+function handleHoldModePress(key) {
+    // Only log the first press, not the ~30/s repeats from Windows key-repeat
+    if (repeatCount === 0) console.log('[HOTKEY] ✓ Callback triggered for', key, '(hold mode)');
 
-    const success = globalShortcut.register(key, () => {
-        // Only log the first press, not the ~30/s repeats from Windows key-repeat
-        if (repeatCount === 0) console.log('[HOTKEY] ✓ Callback triggered for', key);
-
-        // Auto-recreate the Pill window if it was destroyed (crash, GC, etc.)
-        if (!mainWindow || mainWindow.isDestroyed()) {
-            if (repeatCount === 0) console.log('[HOTKEY] Pill window missing — recreating...');
-            createWindow();
-            // Wait for window to be ready before showing pill
-            mainWindow.webContents.once('did-finish-load', () => {
-                if (processingAudio) return;
-                isRecordingActive = true;
-                showPill();
-            });
-            repeatCount = 1;
-            if (holdTimer) clearTimeout(holdTimer);
-            holdTimer = setTimeout(() => {
-                if (isRecordingActive) {
-                    isRecordingActive = false;
-                    triggerStop();
-                }
-                holdTimer = null;
-                repeatCount = 0;
-            }, 2000); // longer timeout for first press after recreate
-            return;
-        }
-        if (processingAudio) return;
-
-        repeatCount++;
-
-        if (repeatCount === 1) {
+    // Auto-recreate the Pill window if it was destroyed (crash, GC, etc.)
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        if (repeatCount === 0) console.log('[HOTKEY] Pill window missing — recreating...');
+        createWindow();
+        mainWindow.webContents.once('did-finish-load', () => {
+            if (processingAudio) return;
             isRecordingActive = true;
             showPill();
-        }
-
-        // Adaptive: 800ms on first press (>Windows repeat initial delay), 300ms after
-        const timeout = repeatCount <= 1 ? 800 : 300;
-
+        });
+        repeatCount = 1;
         if (holdTimer) clearTimeout(holdTimer);
         holdTimer = setTimeout(() => {
             if (isRecordingActive) {
@@ -481,10 +458,84 @@ function registerHotkey(key) {
             }
             holdTimer = null;
             repeatCount = 0;
-        }, timeout);
-    });
+        }, 2000); // longer timeout for first press after recreate
+        return;
+    }
+    if (processingAudio) return;
 
-    console.log(`[HOTKEY] register("${key}") → ${success}`);
+    repeatCount++;
+
+    if (repeatCount === 1) {
+        isRecordingActive = true;
+        showPill();
+    }
+
+    // Adaptive: 800ms on first press (>Windows repeat initial delay), 300ms after
+    const timeout = repeatCount <= 1 ? 800 : 300;
+
+    if (holdTimer) clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => {
+        if (isRecordingActive) {
+            isRecordingActive = false;
+            triggerStop();
+        }
+        holdTimer = null;
+        repeatCount = 0;
+    }, timeout);
+}
+
+function handleToggleModePress(key) {
+    // Windows key-repeat fires this callback ~30×/s while held.
+    // A fresh human press is separated by > ~250 ms from the previous callback,
+    // so we use the gap to discriminate between repeats and genuine re-presses.
+    const now = Date.now();
+    const sinceLast = now - toggleLastCallbackTime;
+    toggleLastCallbackTime = now;
+    if (toggleLastCallbackTime > 0 && sinceLast < 250) return; // key-repeat → ignore
+
+    console.log('[HOTKEY] ✓ Fresh press for', key, '(toggle mode) — isRecording:', isRecordingActive);
+
+    // Auto-recreate the Pill window if it was destroyed
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        console.log('[HOTKEY] Pill window missing — recreating...');
+        createWindow();
+        mainWindow.webContents.once('did-finish-load', () => {
+            if (processingAudio) return;
+            isRecordingActive = true;
+            showPill();
+        });
+        return;
+    }
+
+    if (processingAudio) return; // ignore presses during transcription
+
+    if (!isRecordingActive) {
+        isRecordingActive = true;
+        showPill();
+    } else {
+        isRecordingActive = false;
+        triggerStop();
+    }
+}
+
+function registerHotkey(key) {
+    globalShortcut.unregisterAll();
+    currentHotkey = key;
+    if (tray) tray.setToolTip('Voixify');
+
+    // Reset mode-specific transient state so a mode swap starts clean.
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    repeatCount = 0;
+    toggleLastCallbackTime = 0;
+
+    const mode = mainSettings.hotkeyMode === 'toggle' ? 'toggle' : 'hold';
+    const handler = mode === 'toggle'
+        ? () => handleToggleModePress(key)
+        : () => handleHoldModePress(key);
+
+    const success = globalShortcut.register(key, handler);
+
+    console.log(`[HOTKEY] register("${key}", mode=${mode}) → ${success}`);
     if (!success) {
         console.error(`[HOTKEY] FAILED to register "${key}"`);
     }
@@ -744,6 +795,9 @@ ipcMain.handle('recording-ended', () => {
 // always knows the current configuration, no matter which window
 // last changed a value.
 ipcMain.handle('update-settings', (_, partial) => {
+    const modeChanged = partial.hotkeyMode !== undefined
+        && partial.hotkeyMode !== mainSettings.hotkeyMode;
+
     Object.assign(mainSettings, partial);
 
     // Persist to disk so settings survive full app restarts
@@ -752,6 +806,12 @@ ipcMain.handle('update-settings', (_, partial) => {
     // Broadcast to the Pill window so its Zustand store stays in sync.
     // (Settings window and Pill window have separate localStorage/Zustand stores)
     safeSend('settings-changed', { ...mainSettings });
+
+    // Switching between hold / toggle needs to swap the globalShortcut handler.
+    if (modeChanged) {
+        console.log('[SETTINGS] hotkeyMode changed → re-registering hotkey as', mainSettings.hotkeyMode);
+        registerHotkey(currentHotkey);
+    }
 
     return true;
 });
@@ -856,7 +916,7 @@ function startBackend() {
 
     // extraResources copies backend to resources/backend/ (outside ASAR)
     const backendPath = app.isPackaged
-        ? path.join(process.resourcesPath, 'backend', 'src', 'index.js')
+        ? path.join(process.resourcesPath, 'backend', 'server.js')
         : path.join(__dirname, '..', 'backend', 'src', 'index.js');
 
     if (!fs.existsSync(backendPath)) {

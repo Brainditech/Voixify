@@ -55,6 +55,7 @@ export default function Settings() {
     const {
         lang, setLang,
         hotkey, setHotkey,
+        hotkeyMode, setHotkeyMode,
         correctionLevel, setCorrectionLevel,
         ollamaModel, setOllamaModel,
         deepgramModel, setDeepgramModel,
@@ -554,7 +555,30 @@ export default function Settings() {
                                 </div>
                                 {hotkeyStatus === 'ok' && <p className="settings-hint ok">✓ Raccourci mis à jour</p>}
                                 {hotkeyStatus === 'error' && <p className="settings-hint err">✗ Raccourci invalide ou déjà utilisé</p>}
-                                <p className="settings-hint">Maintenir pour enregistrer, relâcher pour coller</p>
+                            </section>
+
+                            {/* Mode d'activation */}
+                            <section className="settings-section">
+                                <div className="settings-row">
+                                    <div>
+                                        <h2 className="settings-section-title" style={{ marginBottom: 0 }}>Mode mains-libres</h2>
+                                        <p className="settings-hint" style={{ marginTop: 2 }}>
+                                            {hotkeyMode === 'toggle'
+                                                ? '1ᵉʳ appui = démarrer, 2ᵉ appui = arrêter et coller (vous pouvez lâcher la touche)'
+                                                : 'Maintenir la touche pour enregistrer, relâcher pour coller'}
+                                        </p>
+                                    </div>
+                                    <button
+                                        className={`toggle ${hotkeyMode === 'toggle' ? 'on' : 'off'}`}
+                                        onClick={() => setSetting(
+                                            'hotkeyMode',
+                                            hotkeyMode === 'toggle' ? 'hold' : 'toggle',
+                                            setHotkeyMode,
+                                        )}
+                                    >
+                                        <span className="toggle-thumb" />
+                                    </button>
+                                </div>
                             </section>
                         </div>
                     )}
