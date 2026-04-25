@@ -11,7 +11,7 @@
         "build": "vite build",
         "preview": "vite preview",
         "electron": "electron --no-deprecation .",
-        "dist": "npm run build && electron-builder"
+        "dist": "npm run build && npm run build --prefix ../backend && electron-builder"
     },
     "dependencies": {
         "dotenv": "^17.3.1",
@@ -52,13 +52,8 @@
         ],
         "extraResources": [
             {
-                "from": "../backend",
-                "to": "backend",
-                "filter": [
-                    "src/**/*",
-                    "package.json",
-                    "node_modules/**/*"
-                ]
+                "from": "../backend/dist/server.js",
+                "to": "backend/server.js"
             }
         ],
         "directories": {

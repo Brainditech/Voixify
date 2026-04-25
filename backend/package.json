@@ -6,18 +6,20 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon src/index.js",
+    "build": "esbuild src/index.js --bundle --platform=node --target=node18 --outfile=dist/server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
     "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
     "form-data": "^4.0.1",
     "multer": "^2.0.2",
-    "node-fetch": "^2.7.0",
-    "express-rate-limit": "^7.5.0",
-    "dotenv": "^16.4.5"
+    "node-fetch": "^2.7.0"
   },
   "devDependencies": {
+    "esbuild": "^0.25.12",
     "nodemon": "^3.0.2"
   }
 }
