@@ -308,6 +308,10 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            // Pill is shown via showInactive() and never gets focus — without
+            // this, Chromium classifies it as a backgrounded window and throttles
+            // CSS animations, leaving the recording bars frozen on screen.
+            backgroundThrottling: false,
             preload: path.join(__dirname, 'preload.cjs'),
         },
     });
