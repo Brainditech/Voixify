@@ -1,6 +1,6 @@
 const {
     app, BrowserWindow, globalShortcut, Tray, Menu, powerMonitor,
-    clipboard, ipcMain, nativeImage, screen, dialog, session
+    clipboard, ipcMain, nativeImage, screen, dialog, session, safeStorage
 } = require('electron');
 const path = require('path');
 const os = require('os');
@@ -173,6 +173,54 @@ function getSettingsPath() {
     return path.join(userDataPath, 'settings.json');
 }
 
+// ─── Secret encryption (DPAPI on Windows / Keychain on macOS / libsecret on Linux) ───
+// API keys live in settings.json — encrypt at rest so a casual disk read can't
+// recover them. safeStorage uses an OS-bound key (DPAPI ties it to the Windows
+// user account), so the file is meaningless to another user on the same box or
+// to a backup that lands on another machine.
+//
+// Format on disk: `enc:v1:<base64 ciphertext>` for encrypted values, plain string
+// for legacy values. We re-encrypt on the next save, so existing settings.json
+// files keep working without an explicit migration step.
+const SECRET_KEYS = ['deepgramApiKey', 'whisperApiKey'];
+const ENC_PREFIX = 'enc:v1:';
+let _safeStorageWarned = false;
+
+function encryptSecret(plain) {
+    if (typeof plain !== 'string' || plain === '') return plain;
+    if (plain.startsWith(ENC_PREFIX)) return plain; // already encrypted
+    if (!safeStorage.isEncryptionAvailable()) {
+        if (!_safeStorageWarned) {
+            console.warn('[SETTINGS] safeStorage not available — secrets will be stored in plaintext');
+            _safeStorageWarned = true;
+        }
+        return plain;
+    }
+    try {
+        const buf = safeStorage.encryptString(plain);
+        return ENC_PREFIX + buf.toString('base64');
+    } catch (e) {
+        console.error('[SETTINGS] encryptString failed:', e.message);
+        return plain;
+    }
+}
+
+function decryptSecret(stored) {
+    if (typeof stored !== 'string' || !stored.startsWith(ENC_PREFIX)) return stored;
+    if (!safeStorage.isEncryptionAvailable()) {
+        // We have ciphertext but no key — return empty so the user re-enters it.
+        // Returning the ciphertext would leak `enc:v1:...` into HTTP Authorization headers.
+        return '';
+    }
+    try {
+        const buf = Buffer.from(stored.slice(ENC_PREFIX.length), 'base64');
+        return safeStorage.decryptString(buf);
+    } catch (e) {
+        console.error('[SETTINGS] decryptString failed (key mismatch?):', e.message);
+        return '';
+    }
+}
+
 function loadPersistedSettings() {
     try {
         const filePath = getSettingsPath();
@@ -187,12 +235,25 @@ function loadPersistedSettings() {
     return {};
 }
 
+// Decrypt secret fields in-place. Called once after app.whenReady() because
+// safeStorage is not usable before the app is ready.
+function decryptLoadedSecrets(settings) {
+    for (const key of SECRET_KEYS) {
+        if (settings[key]) settings[key] = decryptSecret(settings[key]);
+    }
+}
+
 function savePersistedSettings(settings) {
     try {
         const filePath = getSettingsPath();
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf8');
+        // Clone + encrypt secrets so the on-disk copy never contains plaintext keys.
+        const onDisk = { ...settings };
+        for (const key of SECRET_KEYS) {
+            if (onDisk[key]) onDisk[key] = encryptSecret(onDisk[key]);
+        }
+        fs.writeFileSync(filePath, JSON.stringify(onDisk, null, 2), 'utf8');
     } catch (e) {
         console.error('[SETTINGS] Failed to save settings:', e.message);
     }
@@ -245,15 +306,9 @@ function pickAllowedKeys(obj, allowedSet) {
 }
 
 // ─── WebM repair ────────────────────────────────────────────
-function fixWebmBuffer(buf) {
-    const scanLimit = Math.min(buf.length - 4, 65536);
-    for (let i = 0; i < scanLimit; i++) {
-        if (buf[i] === 0x1a && buf[i + 1] === 0x45 && buf[i + 2] === 0xdf && buf[i + 3] === 0xa3) {
-            return i > 0 ? buf.slice(i) : buf;
-        }
-    }
-    return null;
-}
+// Implementation lives in lib/webm-repair.cjs so it can be unit-tested
+// without booting Electron (the file has zero electron dependencies).
+const { fixWebmBuffer } = require('./lib/webm-repair.cjs');
 
 // ─── State ───────────────────────────────────────────────────
 let mainWindow = null;
@@ -293,6 +348,17 @@ function stopWatchdog() {
 function safeSend(channel, ...args) {
     if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
         mainWindow.webContents.send(channel, ...args);
+    }
+}
+
+// Broadcast to every renderer (Pill + Settings + any future window). Used for
+// `settings-changed` so the two windows stay in lockstep regardless of which
+// one originated the change.
+function broadcastToAllRenderers(channel, ...args) {
+    for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed() && win.webContents) {
+            win.webContents.send(channel, ...args);
+        }
     }
 }
 
@@ -855,9 +921,11 @@ ipcMain.handle('update-settings', (_, partial) => {
     // Persist to disk so settings survive full app restarts
     savePersistedSettings(mainSettings);
 
-    // Broadcast to the Pill window so its Zustand store stays in sync.
-    // (Settings window and Pill window have separate localStorage/Zustand stores)
-    safeSend('settings-changed', { ...mainSettings });
+    // Broadcast to every renderer so Pill + Settings stay in lockstep.
+    // The two windows have separate Zustand stores; main process is the only
+    // shared truth. Sending to all windows means the originator gets a no-op
+    // echo but ensures the *other* window picks up the change immediately.
+    broadcastToAllRenderers('settings-changed', { ...mainSettings });
 
     // Switching between hold / toggle needs to swap the globalShortcut handler.
     if (modeChanged) {
@@ -869,6 +937,11 @@ ipcMain.handle('update-settings', (_, partial) => {
 });
 
 ipcMain.handle('get-settings', () => ({ ...mainSettings }));
+
+// Renderer-side correction call needs the backend URL. Hardcoding 127.0.0.1:3001
+// in the renderer breaks as soon as BACKEND_PORT is overridden via env. Centralise
+// the resolution here so the renderer never has to know about ports.
+ipcMain.handle('get-backend-url', () => `http://127.0.0.1:${BACKEND_PORT}`);
 
 ipcMain.handle('hide-window', () => {
     isRecordingActive = false;
@@ -1046,6 +1119,26 @@ process.on('exit', () => {
 
 // ─── App lifecycle ────────────────────────────────────────────
 app.whenReady().then(async () => {
+    // safeStorage only becomes usable here. Decrypt any `enc:v1:` values that
+    // were loaded synchronously at top level (the file may carry ciphertext
+    // from a previous run). If decryption fails (different OS user / corrupted
+    // profile), the secret comes back empty and we re-apply the env fallback
+    // so the user isn't stranded without a key.
+    decryptLoadedSecrets(mainSettings);
+    if (!mainSettings.deepgramApiKey && DEEPGRAM_KEY_ENV) {
+        mainSettings.deepgramApiKey = DEEPGRAM_KEY_ENV;
+    }
+
+    // Auto-migrate any plaintext secrets left over from a pre-safeStorage run.
+    // savePersistedSettings re-encrypts SECRET_KEYS on the way to disk, so a
+    // legacy settings.json with `"deepgramApiKey": "ag_..."` becomes
+    // `"deepgramApiKey": "enc:v1:..."` on first boot — no user action needed.
+    // Idempotent: already-encrypted values pass through encryptSecret untouched.
+    if (safeStorage.isEncryptionAvailable()) {
+        try { savePersistedSettings(mainSettings); }
+        catch (e) { console.error('[STARTUP] Re-encryption save failed:', e.message); }
+    }
+
     // Kill any orphan backend from a previous crash before starting a new one
     await killOrphanBackend();
     startBackend();

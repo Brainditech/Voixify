@@ -1,0 +1,15 @@
+node_modules
+dist
+.env
+.env.*
+*.log
+logs
+coverage
+__tests__
+*.test.js
+*.spec.js
+.git
+.gitignore
+.vscode
+.idea
+README.md

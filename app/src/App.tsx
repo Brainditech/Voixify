@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import './styles/globals.css';
 import { useVoixify } from './hooks/useVoixify';
 import { useVoixifyStore } from './stores/voixifyStore';
+import { useSyncSettings } from './hooks/useSyncSettings';
 import Settings from './components/Settings';
 
 // Hash-based routing: #/settings → Settings window, anything else → Pill
@@ -22,50 +23,16 @@ function Pill() {
     useEffect(() => { startRef.current = startRecording; }, [startRecording]);
     useEffect(() => { stopRef.current = stopRecording; }, [stopRecording]);
 
+    // Hydrate settings from the main process and listen for cross-window
+    // changes. Hotkey is intentionally not synced from here — it lives on a
+    // dedicated IPC channel (update-hotkey) that handles registration failures.
+    useSyncSettings();
+
     useEffect(() => {
         const api = (window as any).voixify;
         if (!api) return;
 
         api.rendererReady();
-
-        // Load persisted settings FROM the main process (saved to disk).
-        // This covers the case where settings were saved via the Settings window
-        // (separate BrowserWindow with separate localStorage) — especially the API key.
-        api.getSettings().then((saved: any) => {
-            if (!saved) return;
-            const store = useVoixifyStore.getState();
-            if (saved.deepgramApiKey && !store.deepgramApiKey) store.setDeepgramApiKey(saved.deepgramApiKey);
-            if (saved.lang) store.setLang(saved.lang);
-            if (saved.transcriptionSource) store.setTranscriptionSource(saved.transcriptionSource);
-            if (saved.deepgramModel) store.setDeepgramModel(saved.deepgramModel);
-            if (saved.correctionLevel) store.setCorrectionLevel(saved.correctionLevel);
-            if (saved.llmCorrectionEnabled !== undefined) store.setLlmCorrectionEnabled(saved.llmCorrectionEnabled);
-            if (saved.autopasteEnabled !== undefined) store.setAutopasteEnabled(saved.autopasteEnabled);
-            if (saved.ollamaModel) store.setOllamaModel(saved.ollamaModel);
-            if (saved.selectedMicId) store.setSelectedMicId(saved.selectedMicId);
-            if (saved.hotkeyMode) store.setHotkeyMode(saved.hotkeyMode);
-        }).catch(() => { });
-
-        // Sync les paramètres non-critiques depuis Zustand → main process.
-        // IMPORTANT: on n'envoie PAS le hotkey ici — le main process a déjà chargé
-        // la bonne valeur depuis settings.json. Envoyer le hotkey depuis le localStorage
-        // Zustand écraserait silencieusement la valeur correcte avec une valeur potentiellement
-        // périmée. Le hotkey n'est changé que via la fenêtre Paramètres (update-hotkey IPC).
-        const state = useVoixifyStore.getState();
-        api.updateSettings({
-            transcriptionSource: state.transcriptionSource,
-            lang: state.lang,
-            deepgramModel: state.deepgramModel,
-            deepgramApiKey: state.deepgramApiKey,
-            correctionLevel: state.correctionLevel,
-            llmCorrectionEnabled: state.llmCorrectionEnabled,
-            autopasteEnabled: state.autopasteEnabled,
-            ollamaModel: state.ollamaModel,
-            selectedMicId: state.selectedMicId,
-            whisperUrl: state.whisperUrl,
-            ollamaUrl: state.ollamaUrl,
-            hotkeyMode: state.hotkeyMode,
-        }).catch(() => { });
 
         api.onStateChange((s: string) => {
             setRecordingState(s as any);
@@ -75,24 +42,6 @@ function Pill() {
         api.onStopRecording(() => {
             setRecordingState('processing');
             Promise.resolve(stopRef.current()).finally(() => setRecordingState('idle'));
-        });
-
-        // Listen for settings changes from the Settings window (separate BrowserWindow).
-        // This bridges the isolated localStorage gap between the two Electron renderers.
-        api.onSettingsChanged?.((settings: any) => {
-            const store = useVoixifyStore.getState();
-            if (settings.lang !== undefined) store.setLang(settings.lang);
-            if (settings.transcriptionSource !== undefined) store.setTranscriptionSource(settings.transcriptionSource);
-            if (settings.deepgramModel !== undefined) store.setDeepgramModel(settings.deepgramModel);
-            if (settings.deepgramApiKey !== undefined) store.setDeepgramApiKey(settings.deepgramApiKey);
-            if (settings.correctionLevel !== undefined) store.setCorrectionLevel(settings.correctionLevel);
-            if (settings.llmCorrectionEnabled !== undefined) store.setLlmCorrectionEnabled(settings.llmCorrectionEnabled);
-            if (settings.autopasteEnabled !== undefined) store.setAutopasteEnabled(settings.autopasteEnabled);
-            if (settings.ollamaModel !== undefined) store.setOllamaModel(settings.ollamaModel);
-            if (settings.selectedMicId !== undefined) store.setSelectedMicId(settings.selectedMicId);
-            if (settings.whisperUrl !== undefined) store.setWhisperUrl(settings.whisperUrl);
-            if (settings.ollamaUrl !== undefined) store.setOllamaUrl(settings.ollamaUrl);
-            if (settings.hotkeyMode !== undefined) store.setHotkeyMode(settings.hotkeyMode);
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);

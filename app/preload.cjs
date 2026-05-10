@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('voixify', {
     updateHotkey: (key, showWarning) => ipcRenderer.invoke('update-hotkey', key, showWarning),
     updateSettings: (partial) => ipcRenderer.invoke('update-settings', partial),
     getSettings: () => ipcRenderer.invoke('get-settings'),
+    getBackendUrl: () => ipcRenderer.invoke('get-backend-url'),
 
     // Events from main → renderer.
     // Each `on*` registration first clears any previous listener for that channel

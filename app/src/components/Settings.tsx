@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useVoixifyStore, OllamaModelInfo } from '../stores/voixifyStore';
+import { useSyncSettings } from '../hooks/useSyncSettings';
 import History from './History';
 
 // Ollama model families that are for embeddings/OCR, NOT text generation.
@@ -53,22 +54,28 @@ const CORRECTION_OPTIONS = [
 
 export default function Settings() {
     const {
-        lang, setLang,
+        lang,
         hotkey, setHotkey,
-        hotkeyMode, setHotkeyMode,
-        correctionLevel, setCorrectionLevel,
-        ollamaModel, setOllamaModel,
-        deepgramModel, setDeepgramModel,
+        hotkeyMode,
+        correctionLevel,
+        ollamaModel,
+        deepgramModel,
         deepgramApiKey, setDeepgramApiKey,
         whisperApiKey, setWhisperApiKey,
-        transcriptionSource, setTranscriptionSource,
-        whisperUrl, setWhisperUrl,
-        ollamaUrl, setOllamaUrl,
-        autopasteEnabled, setAutopasteEnabled,
-        llmCorrectionEnabled, setLlmCorrectionEnabled,
-        selectedMicId, setSelectedMicId,
+        transcriptionSource,
+        whisperUrl,
+        ollamaUrl,
+        autopasteEnabled,
+        llmCorrectionEnabled,
+        selectedMicId,
         availableModels, setAvailableModels,
     } = useVoixifyStore();
+
+    // Single source of truth: every setting change flows through `setSetting`,
+    // which updates the local store and pushes to the main process. The Pill
+    // window receives the broadcast and stays aligned automatically.
+    // hydrateHotkey:true so the Settings UI shows the current hotkey at mount.
+    const { setSetting } = useSyncSettings({ hydrateHotkey: true });
 
     const [activeTab, setActiveTab] = useState<Tab>('transcription');
     const [hotkeyStatus, setHotkeyStatus] = useState<'idle' | 'ok' | 'error'>('idle');
@@ -105,45 +112,12 @@ export default function Settings() {
         }
     }
 
+    // useSyncSettings hydrates settings + sets up cross-window listeners; the
+    // Settings-only side effects (Ollama model list, audio device list) stay here.
     useEffect(() => {
-        async function syncWithMain() {
-            try {
-                // main process settings.json is the source of truth.
-                // We fetch it first, then push the merged state back so
-                // mainSettings stays consistent with what the UI shows.
-                const saved = await api?.getSettings();
-
-                // Build the merged settings: start from current Zustand values,
-                // override only the fields where the main process has authoritative
-                // data (hotkey, deepgramApiKey, selectedMicId) so we don't push
-                // a stale Zustand snapshot on top of the user's last change.
-                const merged = {
-                    transcriptionSource, lang, deepgramModel,
-                    deepgramApiKey: (saved?.deepgramApiKey || deepgramApiKey),
-                    whisperApiKey: (saved?.whisperApiKey || whisperApiKey),
-                    correctionLevel, llmCorrectionEnabled,
-                    autopasteEnabled, ollamaModel,
-                    selectedMicId: (saved?.selectedMicId || selectedMicId),
-                    whisperUrl, ollamaUrl,
-                };
-
-                if (saved?.hotkey) setHotkey(saved.hotkey);
-                if (saved?.deepgramApiKey) setDeepgramApiKey(saved.deepgramApiKey);
-                if (saved?.whisperApiKey) setWhisperApiKey(saved.whisperApiKey);
-                if (saved?.selectedMicId) setSelectedMicId(saved.selectedMicId);
-
-                await api?.updateSettings(merged);
-            } catch { }
-        }
-        syncWithMain();
         fetchOllamaModels();
         refreshAudioDevices();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-    function setSetting<T>(key: string, value: T, setter: (v: T) => void) {
-        setter(value);
-        api?.updateSettings({ [key]: value }).catch(() => { });
-    }
 
     async function fetchOllamaModels(attempt = 1) {
         setModelsLoading(true);
@@ -389,7 +363,7 @@ export default function Settings() {
                                         <button
                                             key={opt.value}
                                             className={`pill-btn ${lang === opt.value ? 'active' : ''}`}
-                                            onClick={() => setSetting('lang', opt.value as any, setLang)}
+                                            onClick={() => setSetting('lang', opt.value)}
                                         >
                                             {opt.label}
                                         </button>
@@ -403,13 +377,13 @@ export default function Settings() {
                                 <div className="pill-group">
                                     <button
                                         className={`pill-btn ${transcriptionSource === 'deepgram' ? 'active' : ''}`}
-                                        onClick={() => setSetting('transcriptionSource', 'deepgram', setTranscriptionSource)}
+                                        onClick={() => setSetting('transcriptionSource', 'deepgram')}
                                     >
                                         ☁️&nbsp; Deepgram
                                     </button>
                                     <button
                                         className={`pill-btn ${transcriptionSource === 'whisper' ? 'active' : ''}`}
-                                        onClick={() => setSetting('transcriptionSource', 'whisper', setTranscriptionSource)}
+                                        onClick={() => setSetting('transcriptionSource', 'whisper')}
                                     >
                                         🏠&nbsp; Whisper local
                                     </button>
@@ -542,7 +516,7 @@ export default function Settings() {
                                             <button
                                                 key={m.value}
                                                 className={`model-btn ${deepgramModel === m.value ? 'active' : ''}`}
-                                                onClick={() => setSetting('deepgramModel', m.value, setDeepgramModel)}
+                                                onClick={() => setSetting('deepgramModel', m.value)}
                                             >
                                                 <span className="model-label">
                                                     {m.label}
@@ -581,11 +555,7 @@ export default function Settings() {
                                 <select
                                     className="settings-select"
                                     value={selectedMicId}
-                                    onChange={e => {
-                                        const id = e.target.value;
-                                        setSelectedMicId(id);
-                                        api?.updateSettings({ selectedMicId: id }).catch(() => { });
-                                    }}
+                                    onChange={e => setSetting('selectedMicId', e.target.value)}
                                 >
                                     <option value="">Par défaut (système)</option>
                                     {audioDevices.map(d => (
@@ -635,7 +605,6 @@ export default function Settings() {
                                         onClick={() => setSetting(
                                             'hotkeyMode',
                                             hotkeyMode === 'toggle' ? 'hold' : 'toggle',
-                                            setHotkeyMode,
                                         )}
                                     >
                                         <span className="toggle-thumb" />
@@ -665,7 +634,7 @@ export default function Settings() {
                                     </div>
                                     <button
                                         className={`toggle ${llmCorrectionEnabled ? 'on' : 'off'}`}
-                                        onClick={() => setSetting('llmCorrectionEnabled', !llmCorrectionEnabled, setLlmCorrectionEnabled)}
+                                        onClick={() => setSetting('llmCorrectionEnabled', !llmCorrectionEnabled)}
                                     >
                                         <span className="toggle-thumb" />
                                     </button>
@@ -677,7 +646,7 @@ export default function Settings() {
                                             <button
                                                 key={opt.value}
                                                 className={`correction-btn ${correctionLevel === opt.value ? 'active' : ''}`}
-                                                onClick={() => setSetting('correctionLevel', opt.value as any, setCorrectionLevel)}
+                                                onClick={() => setSetting('correctionLevel', opt.value)}
                                             >
                                                 <span className="correction-label">{opt.label}</span>
                                                 <span className="correction-desc">{opt.desc}</span>
@@ -727,7 +696,7 @@ export default function Settings() {
                                             <select
                                                 className="settings-select"
                                                 value={ollamaModel}
-                                                onChange={e => setSetting('ollamaModel', e.target.value, setOllamaModel)}
+                                                onChange={e => setSetting('ollamaModel', e.target.value)}
                                             >
                                                 {/* Show the persisted selection even if Ollama doesn't know it yet
                                                     (e.g. before the first /api/tags response returns) */}
@@ -936,7 +905,7 @@ export default function Settings() {
                                     </div>
                                     <button
                                         className={`toggle ${autopasteEnabled ? 'on' : 'off'}`}
-                                        onClick={() => setSetting('autopasteEnabled', !autopasteEnabled, setAutopasteEnabled)}
+                                        onClick={() => setSetting('autopasteEnabled', !autopasteEnabled)}
                                     >
                                         <span className="toggle-thumb" />
                                     </button>
@@ -950,20 +919,14 @@ export default function Settings() {
                                 <input
                                     className="settings-input"
                                     value={whisperUrl}
-                                    onChange={e => {
-                                        setWhisperUrl(e.target.value);
-                                        api?.updateSettings({ whisperUrl: e.target.value }).catch(() => { });
-                                    }}
+                                    onChange={e => setSetting('whisperUrl', e.target.value)}
                                     placeholder="http://localhost:9990"
                                 />
                                 <label className="settings-label" style={{ marginTop: 10 }}>Ollama URL</label>
                                 <input
                                     className="settings-input"
                                     value={ollamaUrl}
-                                    onChange={e => {
-                                        setOllamaUrl(e.target.value);
-                                        api?.updateSettings({ ollamaUrl: e.target.value }).catch(() => { });
-                                    }}
+                                    onChange={e => setSetting('ollamaUrl', e.target.value)}
                                     placeholder="http://localhost:11434"
                                 />
                             </section>

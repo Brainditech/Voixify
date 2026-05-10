@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAudioRecorder } from './useAudioRecorder';
 import { useVoixifyStore } from '../stores/voixifyStore';
 
@@ -7,11 +7,27 @@ import { useVoixifyStore } from '../stores/voixifyStore';
 // silently dropped the first transcription (paste never fired).
 const PROCESS_TIMEOUT_MS = 120_000;
 
+// Fallback used only if the IPC URL fetch hasn't resolved yet (first paint).
+// Matches the BACKEND_PORT default in electron.cjs.
+const DEFAULT_BACKEND_URL = 'http://127.0.0.1:3001';
+
 export function useVoixify() {
     const { start, stop, isRecording } = useAudioRecorder();
     const addToHistory = useVoixifyStore((s) => s.addToHistory);
     const setRecordingState = useVoixifyStore((s) => s.setRecordingState);
     const processingRef = useRef(false); // prevents concurrent stop/process calls
+    const backendUrlRef = useRef<string>(DEFAULT_BACKEND_URL);
+
+    // Resolve the real backend URL once at mount. Stored in a ref so the
+    // stopRecording callback always reads the current value without becoming
+    // a dependency that retriggers downstream effects.
+    useEffect(() => {
+        const api = (window as any).voixify;
+        if (!api?.getBackendUrl) return;
+        api.getBackendUrl().then((url: string) => {
+            if (typeof url === 'string' && url) backendUrlRef.current = url;
+        }).catch(() => { /* fall back to default */ });
+    }, []);
 
     const startRecording = useCallback(async () => {
         if (isRecording()) return;
@@ -81,7 +97,7 @@ export function useVoixify() {
                     setRecordingState('correcting');
 
                     try {
-                        const res = await fetch('http://127.0.0.1:3001/api/correct', {
+                        const res = await fetch(`${backendUrlRef.current}/api/correct`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({

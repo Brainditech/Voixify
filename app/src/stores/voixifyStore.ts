@@ -96,6 +96,54 @@ interface VoixifyState {
     reset: () => void;
 }
 
+// Exported for unit testing — the store itself wraps it via `persist`.
+export function migrateVoixifyState(persistedState: any, version: number): any {
+    let state = persistedState;
+    if (version < 2) {
+        state = {
+            ...state,
+            hotkey: state?.hotkey || 'CommandOrControl+Space',
+            deepgramModel: state?.deepgramModel || 'nova-3',
+            transcriptionSource: state?.transcriptionSource || 'deepgram',
+        };
+    }
+    if (version < 3) {
+        state = {
+            ...state,
+            llmCorrectionEnabled: state?.llmCorrectionEnabled || false,
+        };
+    }
+    if (version < 4) {
+        const oldUrl = state?.whisperUrl || '';
+        if (!oldUrl || oldUrl === 'http://127.0.0.1:8000' || oldUrl === 'http://localhost:8000') {
+            state = {
+                ...state,
+                whisperUrl: 'http://127.0.0.1:9990',
+            };
+        }
+    }
+    if (version < 5) {
+        if (!state?.lang) {
+            state = { ...state, lang: 'auto' };
+        }
+    }
+    if (version < 6) {
+        state = { ...state, hotkeyMode: state?.hotkeyMode || 'hold' };
+    }
+    if (version < 7) {
+        state = { ...state, whisperApiKey: state?.whisperApiKey || '' };
+    }
+    if (version < 8) {
+        // v8: API keys are no longer persisted in localStorage. Strip them
+        // from the localStorage copy so an old plaintext key doesn't linger.
+        if (state) {
+            delete state.deepgramApiKey;
+            delete state.whisperApiKey;
+        }
+    }
+    return state;
+}
+
 export const useVoixifyStore = create<VoixifyState>()(
     persist(
         (set) => ({
@@ -157,53 +205,19 @@ export const useVoixifyStore = create<VoixifyState>()(
             reset: () => set({ recordingState: 'idle', rawTranscript: '', correctedText: '', errorMessage: null, toastMessage: null }),
         }),
         {
-            name: 'voixify-v7',
-            version: 7,
-            migrate: (persistedState: any, version: number) => {
-                let state = persistedState;
-                if (version < 2) {
-                    state = {
-                        ...state,
-                        hotkey: state?.hotkey || 'CommandOrControl+Space',
-                        deepgramModel: state?.deepgramModel || 'nova-3',
-                        transcriptionSource: state?.transcriptionSource || 'deepgram',
-                    };
-                }
-                if (version < 3) {
-                    state = {
-                        ...state,
-                        llmCorrectionEnabled: state?.llmCorrectionEnabled || false,
-                    };
-                }
-                if (version < 4) {
-                    const oldUrl = state?.whisperUrl || '';
-                    if (!oldUrl || oldUrl === 'http://127.0.0.1:8000' || oldUrl === 'http://localhost:8000') {
-                        state = {
-                            ...state,
-                            whisperUrl: 'http://127.0.0.1:9990',
-                        };
-                    }
-                }
-                if (version < 5) {
-                    // No forced migration — keep explicit fr/en if user picked one.
-                    // Only patch missing values so fresh installs inherit 'auto'.
-                    if (!state?.lang) {
-                        state = { ...state, lang: 'auto' };
-                    }
-                }
-                if (version < 6) {
-                    state = { ...state, hotkeyMode: state?.hotkeyMode || 'hold' };
-                }
-                if (version < 7) {
-                    state = { ...state, whisperApiKey: state?.whisperApiKey || '' };
-                }
-                return state;
-            },
+            name: 'voixify-v8',
+            version: 8,
+            migrate: (persistedState: any, version: number) => migrateVoixifyState(persistedState, version),
             partialize: (s) => ({
+                // Settings persistence: the main process (settings.json) is now the
+                // authoritative store. We keep these in localStorage too so the UI
+                // doesn't flash defaults during the async IPC hydration on mount —
+                // but at every mount, useSyncSettings() overwrites these values
+                // with whatever the main process holds. Secrets (API keys) are
+                // *deliberately* excluded so they only live encrypted on disk.
                 lang: s.lang, mode: s.mode, correctionLevel: s.correctionLevel,
                 hotkey: s.hotkey, hotkeyMode: s.hotkeyMode,
-                ollamaModel: s.ollamaModel, deepgramModel: s.deepgramModel, deepgramApiKey: s.deepgramApiKey,
-                whisperApiKey: s.whisperApiKey,
+                ollamaModel: s.ollamaModel, deepgramModel: s.deepgramModel,
                 transcriptionSource: s.transcriptionSource, autopasteEnabled: s.autopasteEnabled,
                 llmCorrectionEnabled: s.llmCorrectionEnabled, selectedMicId: s.selectedMicId,
                 whisperUrl: s.whisperUrl,

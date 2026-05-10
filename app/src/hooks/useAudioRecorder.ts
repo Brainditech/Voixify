@@ -6,6 +6,39 @@ let sharedStream: MediaStream | null = null;
 let sharedAudioContext: AudioContext | null = null;
 let lastMicId: string = ''; // track which mic was acquired
 
+// Release the shared mic resources after this idle window. Without it, the
+// recording-indicator stays lit forever and laptops stay in "mic active" power
+// state. Re-acquiring on the next start() costs ~50–150 ms — negligible vs.
+// keeping the mic open all afternoon.
+const MIC_IDLE_TIMEOUT_MS = 5 * 60_000;
+let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+
+function releaseSharedMic(reason: string) {
+    inactivityTimer = null;
+    if (sharedStream) {
+        try { sharedStream.getTracks().forEach(t => t.stop()); } catch { /* tracks already gone */ }
+        sharedStream = null;
+        lastMicId = '';
+    }
+    if (sharedAudioContext && sharedAudioContext.state !== 'closed') {
+        try { sharedAudioContext.close(); } catch { /* already closed */ }
+    }
+    sharedAudioContext = null;
+    console.log('[RECORDER] Released shared mic stream —', reason);
+}
+
+function cancelMicIdleTimer() {
+    if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = null;
+    }
+}
+
+function armMicIdleTimer() {
+    cancelMicIdleTimer();
+    inactivityTimer = setTimeout(() => releaseSharedMic('idle 5 min'), MIC_IDLE_TIMEOUT_MS);
+}
+
 export function useAudioRecorder() {
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const analyserRef = useRef<AnalyserNode | null>(null);
@@ -81,6 +114,11 @@ export function useAudioRecorder() {
             console.warn('[RECORDER] Already recording, ignoring start()');
             return;
         }
+
+        // The mic was released after the last idle window — start() will
+        // re-acquire it via getUserMedia below. Cancel any pending release
+        // so we don't tear down the stream we're about to reuse.
+        cancelMicIdleTimer();
 
         // Cancel any pending silence timer / rAF from previous session
         if (silenceTimerRef.current) {
@@ -188,6 +226,10 @@ export function useAudioRecorder() {
                 resolved = true;
                 mediaRecorderRef.current = null;
                 cleanupAudioNodes();
+                // Arm the idle release. If start() is called again within
+                // MIC_IDLE_TIMEOUT_MS, the timer is cancelled and the warm
+                // stream is reused.
+                armMicIdleTimer();
                 resolve({ blob, duration });
             };
 
