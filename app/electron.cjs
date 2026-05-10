@@ -275,6 +275,11 @@ const mainSettings = {
     llmCorrectionEnabled: false,
     ollamaModel: 'kimi-k2.5:cloud',
     selectedMicId: '',
+    // Default ON: the pre-roll buffer mode guarantees zero clipping at the
+    // start of every dictation. Cost: the OS mic indicator stays on while
+    // the app is in tray. Users who prefer the indicator to disappear
+    // between dictations can disable this in Settings.
+    lowLatencyMode: true,
     whisperUrl: process.env.WHISPER_URL || 'http://127.0.0.1:9990',
     ollamaUrl: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
     hotkeyMode: 'hold', // 'hold' = push-to-talk (legacy) | 'toggle' = press-once-to-start-press-again-to-stop
@@ -543,6 +548,8 @@ function createTranscribeWindow() {
 }
 
 // ─── Show pill ───────────────────────────────────────────────
+// Pure UI primitive: positions and reveals the pill window. Does NOT touch
+// recording state — that lives in armRecording() / triggerStop().
 function showPill() {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     const pos = pillPos();
@@ -553,7 +560,29 @@ function showPill() {
     // à placer la fenêtre au-dessus de tout, y compris les overlays jeu.
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
     mainWindow.showInactive();
-    safeSend('state-change', 'recording');
+}
+
+// ─── Arm recording ───────────────────────────────────────────
+// Single entry point for "user pressed the hotkey, kick off a dictation."
+// Two flows depending on the user's chosen mode:
+//
+//   lowLatencyMode = true  → mic is already capturing into a ring buffer.
+//                            Show pill instantly, tell renderer to flip the
+//                            "keep all chunks" flag. Zero clipping.
+//
+//   lowLatencyMode = false → mic is cold. Tell renderer to build the pipeline
+//                            and wait for MediaRecorder.onstart. The pill
+//                            stays hidden until the renderer confirms via
+//                            'recording-armed'. Slight delay, zero clipping.
+function armRecording() {
+    if (mainSettings.lowLatencyMode) {
+        showPill();
+        safeSend('state-change', 'recording');
+    } else {
+        // Defer pill until renderer signals 'recording-armed'. Renderer also
+        // receives the state via the 'arm-recording' event to start capture.
+        safeSend('arm-recording');
+    }
 }
 
 // ─── Stop recording and hide ─────────────────────────────────
@@ -606,7 +635,7 @@ function handleHoldModePress(key) {
         mainWindow.webContents.once('did-finish-load', () => {
             if (processingAudio) return;
             isRecordingActive = true;
-            showPill();
+            armRecording();
         });
         repeatCount = 1;
         if (holdTimer) clearTimeout(holdTimer);
@@ -626,7 +655,7 @@ function handleHoldModePress(key) {
 
     if (repeatCount === 1) {
         isRecordingActive = true;
-        showPill();
+        armRecording();
     }
 
     // Adaptive: 800ms on first press (>Windows repeat initial delay), 300ms after
@@ -661,7 +690,7 @@ function handleToggleModePress(key) {
         mainWindow.webContents.once('did-finish-load', () => {
             if (processingAudio) return;
             isRecordingActive = true;
-            showPill();
+            armRecording();
         });
         return;
     }
@@ -670,7 +699,7 @@ function handleToggleModePress(key) {
 
     if (!isRecordingActive) {
         isRecordingActive = true;
-        showPill();
+        armRecording();
     } else {
         isRecordingActive = false;
         triggerStop();
@@ -973,6 +1002,17 @@ ipcMain.handle('recording-ended', () => {
     isRecordingActive = false;
     processingAudio = false;
 
+});
+
+// Privacy mode only: renderer calls this once MediaRecorder.onstart has fired,
+// so we know audio capture is truly active. Reveal the pill at this point so
+// the visible icon == "your words are being captured" contract holds.
+ipcMain.handle('recording-armed', () => {
+    // Belt-and-suspenders: a stale 'recording-armed' could arrive after the
+    // user released the hotkey (e.g. very fast tap). Honor the current state.
+    if (!isRecordingActive) return;
+    showPill();
+    safeSend('state-change', 'recording');
 });
 
 // ─── Settings sync ────────────────────────────────────────────

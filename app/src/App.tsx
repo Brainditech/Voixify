@@ -40,9 +40,26 @@ function Pill() {
 
         api.rendererReady();
 
+        // Low-latency mode: main shows the pill and emits state-change('recording')
+        // synchronously with the keypress. The warm ring buffer is already
+        // capturing, so startRef.current() is a near-instant flag flip.
         api.onStateChange((s: string) => {
             setRecordingState(s as any);
             if (s === 'recording') startRef.current();
+        });
+
+        // Privacy mode: main holds back the pill and instead emits this event.
+        // We must build the MediaRecorder, await its onstart, then notify main
+        // to reveal the pill. This trades ~150 ms of perceived UI lag for the
+        // guarantee that the pill appearing == audio actively being captured.
+        api.onArmRecording?.(async () => {
+            try {
+                await startRef.current();
+                api.recordingArmed?.();
+            } catch (err) {
+                console.error('[PILL] arm-recording failed:', err);
+                api.hideWindow?.();
+            }
         });
 
         api.onStopRecording(() => {

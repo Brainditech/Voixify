@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld('voixify', {
     rendererReady: () => ipcRenderer.invoke('renderer-ready'),
     processAudio: (payload) => ipcRenderer.invoke('process-audio', payload),
     recordingEnded: () => ipcRenderer.invoke('recording-ended'),
+    // Privacy mode only: renderer calls this once MediaRecorder.onstart has
+    // fired, so main can reveal the pill with the guarantee that audio is
+    // actually being captured.
+    recordingArmed: () => ipcRenderer.invoke('recording-armed'),
     hideWindow: () => ipcRenderer.invoke('hide-window'),
     pasteText: (text) => ipcRenderer.invoke('paste-text', text),
     copyToClipboard: (text) => ipcRenderer.invoke('copy-to-clipboard', text),
@@ -52,6 +56,13 @@ contextBridge.exposeInMainWorld('voixify', {
     onStopRecording: (cb) => {
         ipcRenderer.removeAllListeners('stop-recording');
         ipcRenderer.on('stop-recording', () => cb());
+    },
+    // Privacy mode only: main process fires this when the hotkey is pressed,
+    // and waits for the renderer to call recordingArmed() before revealing
+    // the pill.
+    onArmRecording: (cb) => {
+        ipcRenderer.removeAllListeners('arm-recording');
+        ipcRenderer.on('arm-recording', () => cb());
     },
     onSettingsChanged: (cb) => {
         ipcRenderer.removeAllListeners('settings-changed');

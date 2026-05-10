@@ -55,6 +55,11 @@ interface VoixifyState {
     autopasteEnabled: boolean;
     llmCorrectionEnabled: boolean;
     selectedMicId: string;
+    // Latency vs privacy: when true, the mic is captured continuously and a
+    // 500 ms pre-roll buffer is kept so the very first phoneme is never clipped.
+    // When false, the mic is released between dictations and the pill is held
+    // back until MediaRecorder is confirmed active (no clipping, slight delay).
+    lowLatencyMode: boolean;
     // Direct API endpoints (no backend proxy needed)
     whisperUrl: string;
     ollamaUrl: string;
@@ -84,6 +89,7 @@ interface VoixifyState {
     setAutopasteEnabled: (v: boolean) => void;
     setLlmCorrectionEnabled: (v: boolean) => void;
     setSelectedMicId: (id: string) => void;
+    setLowLatencyMode: (v: boolean) => void;
     setWhisperUrl: (u: string) => void;
     setOllamaUrl: (u: string) => void;
     setShowSettings: (v: boolean) => void;
@@ -141,6 +147,12 @@ export function migrateVoixifyState(persistedState: any, version: number): any {
             delete state.whisperApiKey;
         }
     }
+    if (version < 9) {
+        // Default ON so existing users immediately benefit from zero-clip
+        // capture. Opt-out via Settings if the permanent OS mic indicator is
+        // a problem.
+        state = { ...state, lowLatencyMode: state?.lowLatencyMode ?? true };
+    }
     return state;
 }
 
@@ -166,6 +178,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             autopasteEnabled: true,
             llmCorrectionEnabled: false,
             selectedMicId: '',
+            lowLatencyMode: true,
             whisperUrl: 'http://127.0.0.1:9990',
             ollamaUrl: 'http://127.0.0.1:11434',
 
@@ -193,6 +206,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             setAutopasteEnabled: (v) => set({ autopasteEnabled: v }),
             setLlmCorrectionEnabled: (v) => set({ llmCorrectionEnabled: v }),
             setSelectedMicId: (id) => set({ selectedMicId: id }),
+            setLowLatencyMode: (v) => set({ lowLatencyMode: v }),
             setWhisperUrl: (u) => set({ whisperUrl: u }),
             setOllamaUrl: (u) => set({ ollamaUrl: u }),
             setShowSettings: (v) => set({ showSettings: v }),
@@ -205,8 +219,8 @@ export const useVoixifyStore = create<VoixifyState>()(
             reset: () => set({ recordingState: 'idle', rawTranscript: '', correctedText: '', errorMessage: null, toastMessage: null }),
         }),
         {
-            name: 'voixify-v8',
-            version: 8,
+            name: 'voixify-v9',
+            version: 9,
             migrate: (persistedState: any, version: number) => migrateVoixifyState(persistedState, version),
             partialize: (s) => ({
                 // Settings persistence: the main process (settings.json) is now the
@@ -220,6 +234,7 @@ export const useVoixifyStore = create<VoixifyState>()(
                 ollamaModel: s.ollamaModel, deepgramModel: s.deepgramModel,
                 transcriptionSource: s.transcriptionSource, autopasteEnabled: s.autopasteEnabled,
                 llmCorrectionEnabled: s.llmCorrectionEnabled, selectedMicId: s.selectedMicId,
+                lowLatencyMode: s.lowLatencyMode,
                 whisperUrl: s.whisperUrl,
                 ollamaUrl: s.ollamaUrl, history: s.history,
             }),

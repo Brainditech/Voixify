@@ -90,6 +90,18 @@ describe('migrateVoixifyState', () => {
         expect(out.hotkeyMode).toBe('toggle'); // user value preserved
     });
 
+    it('v9: defaults lowLatencyMode to true when missing', () => {
+        const v8 = { lang: 'fr', hotkeyMode: 'hold' };
+        const out = migrateVoixifyState(v8, 8);
+        expect(out.lowLatencyMode).toBe(true);
+    });
+
+    it('v9: preserves an explicit lowLatencyMode=false from a future state', () => {
+        const v8 = { lang: 'fr', lowLatencyMode: false };
+        const out = migrateVoixifyState(v8, 8);
+        expect(out.lowLatencyMode).toBe(false);
+    });
+
     it('handles a null persisted state without throwing', () => {
         // Zustand can pass null on a fresh install with corrupted localStorage
         const out = migrateVoixifyState(null, 1);

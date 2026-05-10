@@ -72,6 +72,7 @@ export default function Settings() {
         autopasteEnabled,
         llmCorrectionEnabled,
         selectedMicId,
+        lowLatencyMode,
         availableModels, setAvailableModels,
     } = useVoixifyStore();
 
@@ -610,6 +611,26 @@ export default function Settings() {
                                             'hotkeyMode',
                                             hotkeyMode === 'toggle' ? 'hold' : 'toggle',
                                         )}
+                                    >
+                                        <span className="toggle-thumb" />
+                                    </button>
+                                </div>
+                            </section>
+
+                            {/* Mode de capture (latence vs vie privée) */}
+                            <section className="settings-section">
+                                <div className="settings-row">
+                                    <div>
+                                        <h2 className="settings-section-title" style={{ marginBottom: 0 }}>Mode basse latence</h2>
+                                        <p className="settings-hint" style={{ marginTop: 2 }}>
+                                            {lowLatencyMode
+                                                ? 'Le micro reste actif en permanence et capture les 500 ms précédant l\'appui. Aucun mot perdu. L\'indicateur micro de Windows reste allumé tant que Voixify tourne.'
+                                                : 'Le micro est libéré entre les dictées. L\'interface s\'affiche avec un léger décalage (~150 ms), une fois la capture confirmée — pour que la pill soit synchrone avec l\'enregistrement.'}
+                                        </p>
+                                    </div>
+                                    <button
+                                        className={`toggle ${lowLatencyMode ? 'on' : 'off'}`}
+                                        onClick={() => setSetting('lowLatencyMode', !lowLatencyMode)}
                                     >
                                         <span className="toggle-thumb" />
                                     </button>

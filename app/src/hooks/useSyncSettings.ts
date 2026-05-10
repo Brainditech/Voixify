@@ -24,6 +24,7 @@ export type SyncableSettingKey =
     | 'llmCorrectionEnabled'
     | 'autopasteEnabled'
     | 'selectedMicId'
+    | 'lowLatencyMode'
     | 'hotkeyMode';
 
 // Map an incoming settings payload to the matching Zustand setter. Keys not
@@ -43,6 +44,7 @@ function applyPayloadToStore(payload: Record<string, unknown>): void {
     if (payload.llmCorrectionEnabled !== undefined) s.setLlmCorrectionEnabled(payload.llmCorrectionEnabled as any);
     if (payload.autopasteEnabled !== undefined) s.setAutopasteEnabled(payload.autopasteEnabled as any);
     if (payload.selectedMicId !== undefined) s.setSelectedMicId(payload.selectedMicId as any);
+    if (payload.lowLatencyMode !== undefined) s.setLowLatencyMode(payload.lowLatencyMode as any);
     if (payload.hotkeyMode !== undefined) s.setHotkeyMode(payload.hotkeyMode as any);
 }
 
