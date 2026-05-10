@@ -45,8 +45,12 @@ const DEEPGRAM_MODELS = [
     { value: 'base', label: 'Base', desc: 'Économique — EN uniquement' },
 ];
 
+// "Off" is owned by the master toggle (llmCorrectionEnabled). Listing it here
+// too made the UI ambiguous: enabling correction only to pick "Désactivée"
+// reads as "I want correction, but actually I don't". The picker now only
+// exposes intensity choices; turning correction off is a single click on the
+// toggle.
 const CORRECTION_OPTIONS = [
-    { label: 'Désactivée', value: 'off', desc: "Texte brut sans modification" },
     { label: 'Minimale', value: 'minimal', desc: "Ponctuation + mots de remplissage" },
     { label: 'Standard', value: 'standard', desc: "Grammaire + orthographe" },
     { label: 'Avancée', value: 'advanced', desc: "Style professionnel fluide" },
@@ -634,7 +638,16 @@ export default function Settings() {
                                     </div>
                                     <button
                                         className={`toggle ${llmCorrectionEnabled ? 'on' : 'off'}`}
-                                        onClick={() => setSetting('llmCorrectionEnabled', !llmCorrectionEnabled)}
+                                        onClick={() => {
+                                            const willBeEnabled = !llmCorrectionEnabled;
+                                            setSetting('llmCorrectionEnabled', willBeEnabled);
+                                            // Legacy state can leave correctionLevel at 'off' from before
+                                            // this option was removed from the picker. Promote to 'standard'
+                                            // so enabling the toggle yields an immediately-active level.
+                                            if (willBeEnabled && correctionLevel === 'off') {
+                                                setSetting('correctionLevel', 'standard');
+                                            }
+                                        }}
                                     >
                                         <span className="toggle-thumb" />
                                     </button>
