@@ -26,6 +26,12 @@ export interface MockVoixifyApi {
     onStateChange: ReturnType<typeof vi.fn>;
     onStopRecording: ReturnType<typeof vi.fn>;
     onSettingsChanged: ReturnType<typeof vi.fn>;
+    // File transcription
+    openTranscribe: ReturnType<typeof vi.fn>;
+    closeTranscribe: ReturnType<typeof vi.fn>;
+    pickTranscriptionFile: ReturnType<typeof vi.fn>;
+    transcribeFile: ReturnType<typeof vi.fn>;
+    saveTranscription: ReturnType<typeof vi.fn>;
 }
 
 export function installMockVoixifyApi(overrides: Partial<MockVoixifyApi> = {}): MockVoixifyApi {
@@ -45,6 +51,11 @@ export function installMockVoixifyApi(overrides: Partial<MockVoixifyApi> = {}): 
         onStateChange: vi.fn(),
         onStopRecording: vi.fn(),
         onSettingsChanged: vi.fn(),
+        openTranscribe: vi.fn().mockResolvedValue(undefined),
+        closeTranscribe: vi.fn().mockResolvedValue(undefined),
+        pickTranscriptionFile: vi.fn().mockResolvedValue(null),
+        transcribeFile: vi.fn().mockResolvedValue({ success: true, transcript: '', durationMs: 0, fileName: '', sizeBytes: 0 }),
+        saveTranscription: vi.fn().mockResolvedValue({ canceled: true }),
         ...overrides,
     };
     (window as any).voixify = base;

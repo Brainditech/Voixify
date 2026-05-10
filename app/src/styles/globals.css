@@ -904,3 +904,257 @@ body,
   border-color: rgba(248, 113, 113, 0.2);
   color: #f87171;
 }
+/* ─── Transcribe window (file transcription) ─────────────── */
+
+.transcribe-window {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #111115;
+  color: rgba(255, 255, 255, 0.92);
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.transcribe-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  -webkit-app-region: drag;
+}
+
+.transcribe-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.transcribe-subtitle {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 4px;
+}
+
+.transcribe-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 22px;
+  line-height: 1;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: all 0.15s;
+}
+
+.transcribe-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.transcribe-body {
+  flex: 1;
+  overflow: auto;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Idle / pickzone */
+.transcribe-pickzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex: 1;
+  text-align: center;
+  padding: 40px 20px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+}
+
+.transcribe-pick-btn {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px 24px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.15s;
+}
+
+.transcribe-pick-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.35);
+}
+
+.transcribe-pick-btn:active {
+  transform: translateY(0);
+}
+
+.transcribe-hint {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.55;
+  max-width: 520px;
+}
+
+/* Loading */
+.transcribe-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex: 1;
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.transcribe-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #8b5cf6;
+  animation: transcribe-spin 0.9s linear infinite;
+}
+
+@keyframes transcribe-spin {
+  to { transform: rotate(360deg); }
+}
+
+.transcribe-loading-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.transcribe-loading-meta {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Done */
+.transcribe-done {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 12px;
+}
+
+.transcribe-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.transcribe-text {
+  flex: 1;
+  min-height: 280px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.92);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.6;
+  padding: 14px 16px;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.transcribe-text:focus {
+  border-color: rgba(139, 92, 246, 0.5);
+}
+
+.transcribe-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.transcribe-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.transcribe-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.transcribe-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.transcribe-btn.primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border-color: transparent;
+  color: white;
+}
+
+.transcribe-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.transcribe-btn.ghost {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.transcribe-btn.ghost:hover:not(:disabled) {
+  color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.transcribe-saved-hint {
+  font-size: 12px;
+  color: #4ade80;
+  margin-top: 4px;
+}
+
+/* Error */
+.transcribe-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex: 1;
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.transcribe-error-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #f87171;
+}
+
+.transcribe-error-msg {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.5;
+  max-width: 540px;
+}

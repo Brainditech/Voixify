@@ -310,9 +310,27 @@ function pickAllowedKeys(obj, allowedSet) {
 // without booting Electron (the file has zero electron dependencies).
 const { fixWebmBuffer } = require('./lib/webm-repair.cjs');
 
+// ─── File transcription (audio/video upload) ────────────────
+// Maps a user-supplied file extension to a Whisper-friendly Content-Type.
+// Lives in its own module so the same logic can be unit-tested without
+// Electron in the picture.
+const { mimeForFile, isSupportedExt, SUPPORTED_EXTENSIONS } = require('./lib/mime-types.cjs');
+
+// 1.5 GB — caps "Transcrire un fichier" at something reasonable. The live
+// recording cap (MAX_AUDIO_BYTES, 50 MB) intentionally stays low because no
+// one dictates a 50 MB voice memo; uploaded videos can legitimately reach
+// hundreds of MB.
+const TRANSCRIBE_FILE_MAX_BYTES = 1_500_000_000;
+
+// Long videos at large-v3 can take 10+ minutes server-side. Allow 30 min
+// before we abort the HTTP request locally — the renderer surfaces a
+// "still working" hint long before that.
+const TRANSCRIBE_FILE_TIMEOUT_MS = 30 * 60 * 1000;
+
 // ─── State ───────────────────────────────────────────────────
 let mainWindow = null;
 let settingsWindow = null;
+let transcribeWindow = null;
 let tray = null;
 let currentHotkey = persistedSettings.hotkey || 'CommandOrControl+Space';
 let isRecordingActive = false;
@@ -477,6 +495,51 @@ function createSettingsWindow() {
 
     settingsWindow.once('ready-to-show', () => settingsWindow.show());
     settingsWindow.on('closed', () => { settingsWindow = null; });
+}
+
+// ─── Create transcribe-file window ───────────────────────────
+// Dedicated window for "Transcrire un fichier" — same hardening profile as
+// the settings window (sandbox + contextIsolation + popup denial). The user
+// uploads an audio/video, we send it to Whisper, show + save the result.
+function createTranscribeWindow() {
+    if (transcribeWindow && !transcribeWindow.isDestroyed()) {
+        transcribeWindow.focus();
+        return;
+    }
+    const TRANSCRIBE_W = 760;
+    const TRANSCRIBE_H = 700;
+    const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
+    transcribeWindow = new BrowserWindow({
+        width: TRANSCRIBE_W,
+        height: TRANSCRIBE_H,
+        x: Math.round((sw - TRANSCRIBE_W) / 2),
+        y: Math.round((sh - TRANSCRIBE_H) / 2),
+        frame: false,
+        transparent: false,
+        resizable: true,
+        minWidth: 600,
+        minHeight: 500,
+        alwaysOnTop: false,
+        skipTaskbar: false,
+        hasShadow: true,
+        show: false,
+        backgroundColor: '#111115',
+        icon: getAppIcon(),
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+            preload: path.join(__dirname, 'preload.cjs'),
+        },
+    });
+
+    transcribeWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+    if (isDev) transcribeWindow.loadURL('http://localhost:5173/#/transcribe');
+    else transcribeWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'transcribe' });
+
+    transcribeWindow.once('ready-to-show', () => transcribeWindow.show());
+    transcribeWindow.on('closed', () => { transcribeWindow = null; });
 }
 
 // ─── Show pill ───────────────────────────────────────────────
@@ -649,6 +712,7 @@ function createTray() {
         { label: '🎙 Voixify', enabled: false },
         { type: 'separator' },
         { label: '⚙️  Paramètres', click: () => createSettingsWindow() },
+        { label: '📄  Transcrire un fichier…', click: () => createTranscribeWindow() },
         { type: 'separator' },
         { label: 'Quitter', click: () => app.quit() },
     ]));
@@ -755,18 +819,27 @@ ipcMain.handle('log-error', (_, msg) => {
 // or OpenAI-compatible service). Same pattern as callDeepgram — eliminates
 // the previous Express round-trip on localhost:3001 and removes the open-proxy
 // SSRF surface that came with the X-Whisper-URL header relay.
-async function callWhisperDirect(audioBuffer, language, whisperUrl, apiKey) {
+async function callWhisperDirect(audioBuffer, language, whisperUrl, apiKey, opts = {}) {
     if (!whisperUrl) {
         throw new Error('Whisper URL non configurée — ajoutez-la dans Paramètres > Avancé');
     }
     // Strip trailing /transcribe if user pasted the full endpoint URL
     const base = whisperUrl.replace(/\/transcribe\/?$/, '');
 
+    // Defaults reproduce the live-recording behaviour. The file-transcription
+    // flow overrides both via opts so the multipart Content-Type and filename
+    // match what the user actually uploaded (mp3/mp4/wav/...).
+    const mimeType = opts.mimeType || 'audio/webm';
+    const filename = opts.filename || 'audio.webm';
+    // Per-call timeout. 90s is fine for a live recording; a 1h video at large-v3
+    // can legitimately need 10+ minutes — caller passes timeoutMs accordingly.
+    const timeoutMs = typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0
+        ? opts.timeoutMs
+        : 90_000;
+
     // Manual multipart body — field name 'file' matches modern faster-whisper
     // APIs (and the secured deployment described in the user's API doc).
     const boundary = '----VoixifyBoundary' + Date.now() + Math.random().toString(36).slice(2);
-    const filename = 'audio.webm';
-    const mimeType = 'audio/webm';
 
     const parts = [];
     parts.push(Buffer.from(
@@ -787,9 +860,7 @@ async function callWhisperDirect(audioBuffer, language, whisperUrl, apiKey) {
     };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-    // Cold start on large-v3 can take 30-60s. We give it 90s here; the renderer
-    // wraps the whole IPC call in its own 120s ceiling so the UI never hangs.
-    const res = await httpPost(`${base}/transcribe`, headers, body, 90_000);
+    const res = await httpPost(`${base}/transcribe`, headers, body, timeoutMs);
 
     let data;
     try {
@@ -943,6 +1014,136 @@ ipcMain.handle('get-settings', () => ({ ...mainSettings }));
 // the resolution here so the renderer never has to know about ports.
 ipcMain.handle('get-backend-url', () => `http://127.0.0.1:${BACKEND_PORT}`);
 
+// ─── File transcription IPC ─────────────────────────────────
+// Three handlers backing the "Transcrire un fichier" window:
+//   pick-transcription-file → native open dialog
+//   transcribe-file         → reads the file and posts it to Whisper
+//   save-transcription      → native save dialog + writeFile
+
+ipcMain.handle('pick-transcription-file', async () => {
+    // Anchor the dialog to the transcribe window if it's open, otherwise let
+    // it float (focused mode) — works either way.
+    const parent = transcribeWindow && !transcribeWindow.isDestroyed() ? transcribeWindow : null;
+    const { canceled, filePaths } = await dialog.showOpenDialog(parent, {
+        title: 'Choisir un fichier audio ou vidéo',
+        properties: ['openFile'],
+        filters: [
+            { name: 'Audio / Vidéo', extensions: SUPPORTED_EXTENSIONS },
+            { name: 'Tous les fichiers', extensions: ['*'] },
+        ],
+    });
+    if (canceled || !filePaths.length) return null;
+    try {
+        const filePath = filePaths[0];
+        const stat = fs.statSync(filePath);
+        return { path: filePath, name: path.basename(filePath), sizeBytes: stat.size };
+    } catch (e) {
+        console.error('[TRANSCRIBE-FILE] stat failed:', e.message);
+        return null;
+    }
+});
+
+ipcMain.handle('transcribe-file', async (_, payload) => {
+    if (!payload || typeof payload !== 'object' || typeof payload.filePath !== 'string') {
+        return { success: false, error: 'Payload invalide' };
+    }
+    const filePath = payload.filePath;
+
+    // 1. Existence + type check
+    let stat;
+    try { stat = fs.statSync(filePath); }
+    catch { return { success: false, error: 'Fichier introuvable' }; }
+    if (!stat.isFile()) return { success: false, error: 'Le chemin ne pointe pas vers un fichier' };
+
+    // 2. Extension allowlist — protects against zip / docx / random binaries
+    if (!isSupportedExt(filePath)) {
+        return {
+            success: false,
+            error: `Format non supporté. Extensions acceptées : ${SUPPORTED_EXTENSIONS.join(', ')}`,
+        };
+    }
+
+    // 3. Size guard. The HTTP body is built in-memory, so we don't want
+    // the user shoving a 5 GB blob and OOM'ing the renderer.
+    if (stat.size > TRANSCRIBE_FILE_MAX_BYTES) {
+        const limitGb = (TRANSCRIBE_FILE_MAX_BYTES / 1_000_000_000).toFixed(1);
+        return {
+            success: false,
+            error: `Fichier trop volumineux (${(stat.size / 1_000_000_000).toFixed(2)} Go). Limite : ${limitGb} Go.`,
+        };
+    }
+
+    // 4. Read into Buffer. fs.promises.readFile returns the whole file at
+    // once — fine up to 1.5 GB on a normal machine.
+    let buf;
+    try { buf = await fs.promises.readFile(filePath); }
+    catch (e) { return { success: false, error: `Lecture échouée : ${e.message}` }; }
+
+    // 5. Resolve language (caller override > main settings > 'auto')
+    const lang = ALLOWED_LANGS.has(payload.language) ? payload.language : (mainSettings.lang || 'auto');
+
+    // 6. Whisper config — same priority order as live recording.
+    const wUrl = mainSettings.whisperUrl || process.env.WHISPER_URL || 'http://127.0.0.1:9990';
+    const wKey = mainSettings.whisperApiKey || '';
+    if (!wUrl) return { success: false, error: 'Whisper URL non configurée — Paramètres > Avancé' };
+
+    // 7. Send to Whisper with the right MIME + filename so the server picks
+    // the correct demuxer.
+    const startedAt = Date.now();
+    try {
+        const transcript = await callWhisperDirect(buf, lang, wUrl, wKey, {
+            mimeType: mimeForFile(filePath),
+            filename: path.basename(filePath),
+            timeoutMs: TRANSCRIBE_FILE_TIMEOUT_MS,
+        });
+        const durationMs = Date.now() - startedAt;
+        console.log(`[TRANSCRIBE-FILE] ${path.basename(filePath)} (${(stat.size / 1_000_000).toFixed(1)} MB) → ${transcript.length} chars in ${durationMs}ms`);
+        return {
+            success: true,
+            transcript: transcript || '',
+            durationMs,
+            fileName: path.basename(filePath),
+            sizeBytes: stat.size,
+        };
+    } catch (e) {
+        const msg = e?.message || String(e);
+        let userError = msg;
+        if (/ECONNREFUSED|ENOTFOUND/i.test(msg)) {
+            userError = `Impossible de joindre le serveur Whisper (${wUrl}). Vérifiez qu'il est en ligne.`;
+        } else if (/timed? ?out|abort/i.test(msg)) {
+            userError = 'Délai de traitement dépassé (30 min). Le fichier est peut-être trop long pour ce modèle.';
+        } else if (/401|403/.test(msg)) {
+            userError = 'Authentification Whisper refusée — vérifiez la clé API dans Paramètres.';
+        }
+        console.error('[TRANSCRIBE-FILE]', userError);
+        return { success: false, error: userError };
+    }
+});
+
+ipcMain.handle('save-transcription', async (_, payload) => {
+    if (!payload || typeof payload.content !== 'string') {
+        return { success: false, error: 'Contenu invalide' };
+    }
+    const format = payload.format === 'md' ? 'md' : 'txt';
+    const suggested = (payload.suggestedName || 'transcription').replace(/\.[^.]+$/, '');
+    const parent = transcribeWindow && !transcribeWindow.isDestroyed() ? transcribeWindow : null;
+    const { canceled, filePath } = await dialog.showSaveDialog(parent, {
+        title: 'Enregistrer la transcription',
+        defaultPath: `${suggested}.${format}`,
+        filters: format === 'md'
+            ? [{ name: 'Markdown', extensions: ['md'] }]
+            : [{ name: 'Texte', extensions: ['txt'] }],
+    });
+    if (canceled || !filePath) return { canceled: true };
+    try {
+        await fs.promises.writeFile(filePath, payload.content, 'utf8');
+        return { success: true, path: filePath };
+    } catch (e) {
+        console.error('[SAVE-TRANSCRIPTION]', e.message);
+        return { success: false, error: e.message };
+    }
+});
+
 ipcMain.handle('hide-window', () => {
     isRecordingActive = false;
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
@@ -1000,6 +1201,12 @@ ipcMain.handle('update-hotkey', (_, newKey, showWarning = false) => {
 ipcMain.handle('open-settings', () => createSettingsWindow());
 ipcMain.handle('close-settings', () => {
     if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.close();
+});
+
+// Transcribe-file window control
+ipcMain.handle('open-transcribe', () => createTranscribeWindow());
+ipcMain.handle('close-transcribe', () => {
+    if (transcribeWindow && !transcribeWindow.isDestroyed()) transcribeWindow.close();
 });
 
 // ─── Backend Manager ──────────────────────────────────────────

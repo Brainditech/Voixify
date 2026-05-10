@@ -34,6 +34,13 @@ contextBridge.exposeInMainWorld('voixify', {
     getSettings: () => ipcRenderer.invoke('get-settings'),
     getBackendUrl: () => ipcRenderer.invoke('get-backend-url'),
 
+    // File transcription window (audio/video upload)
+    openTranscribe: () => ipcRenderer.invoke('open-transcribe'),
+    closeTranscribe: () => ipcRenderer.invoke('close-transcribe'),
+    pickTranscriptionFile: () => ipcRenderer.invoke('pick-transcription-file'),
+    transcribeFile: (payload) => ipcRenderer.invoke('transcribe-file', payload),
+    saveTranscription: (payload) => ipcRenderer.invoke('save-transcription', payload),
+
     // Events from main → renderer.
     // Each `on*` registration first clears any previous listener for that channel
     // so HMR / re-mounts don't accumulate duplicate handlers (would fire the
