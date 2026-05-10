@@ -1444,14 +1444,15 @@ app.whenReady().then(async () => {
         }
     }, 5000);
 
-    // ─── Second instance: focus existing window ───────────────
+    // ─── Second instance: surface Settings ───────────────────
+    // The lock above prevents a second process from running, but without a
+    // visible reaction the user thinks "nothing happened, maybe both are
+    // running anyway". Open Settings as the clear feedback that the app is
+    // alive — createSettingsWindow() already focuses the window if it's
+    // already open, so this handles both cases.
     app.on('second-instance', () => {
-        // L'utilisateur a tenté de lancer une 2ème instance — on focus notre fenêtre
-        if (settingsWindow && !settingsWindow.isDestroyed()) {
-            settingsWindow.focus();
-        } else if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.showInactive();
-        }
+        console.log('[SINGLE-INSTANCE] Second launch detected — surfacing Settings');
+        createSettingsWindow();
     });
 });
 
