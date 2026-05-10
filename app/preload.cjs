@@ -33,8 +33,20 @@ contextBridge.exposeInMainWorld('voixify', {
     updateSettings: (partial) => ipcRenderer.invoke('update-settings', partial),
     getSettings: () => ipcRenderer.invoke('get-settings'),
 
-    // Events from main → renderer
-    onStateChange: (cb) => ipcRenderer.on('state-change', (_, s) => cb(s)),
-    onStopRecording: (cb) => ipcRenderer.on('stop-recording', () => cb()),
-    onSettingsChanged: (cb) => ipcRenderer.on('settings-changed', (_, settings) => cb(settings)),
+    // Events from main → renderer.
+    // Each `on*` registration first clears any previous listener for that channel
+    // so HMR / re-mounts don't accumulate duplicate handlers (would fire the
+    // recording start callback multiple times per hotkey press).
+    onStateChange: (cb) => {
+        ipcRenderer.removeAllListeners('state-change');
+        ipcRenderer.on('state-change', (_, s) => cb(s));
+    },
+    onStopRecording: (cb) => {
+        ipcRenderer.removeAllListeners('stop-recording');
+        ipcRenderer.on('stop-recording', () => cb());
+    },
+    onSettingsChanged: (cb) => {
+        ipcRenderer.removeAllListeners('settings-changed');
+        ipcRenderer.on('settings-changed', (_, settings) => cb(settings));
+    },
 });

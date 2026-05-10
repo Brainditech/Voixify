@@ -1,7 +1,7 @@
 {
   "name": "voixify-backend",
   "version": "1.0.0",
-  "description": "Voixify backend proxy - STT + LLM correction",
+  "description": "Voixify backend proxy - LLM correction (Ollama). Whisper is called directly from the Electron main process.",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
@@ -13,10 +13,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
-    "express-rate-limit": "^7.5.0",
-    "form-data": "^4.0.1",
-    "multer": "^2.0.2",
-    "node-fetch": "^2.7.0"
+    "express-rate-limit": "^7.5.0"
   },
   "devDependencies": {
     "esbuild": "^0.25.12",

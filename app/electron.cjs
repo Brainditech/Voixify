@@ -208,6 +208,7 @@ const mainSettings = {
     lang: 'auto',
     deepgramModel: 'nova-3',
     deepgramApiKey: '',
+    whisperApiKey: '',
     correctionLevel: 'off',
     autopasteEnabled: true,
     llmCorrectionEnabled: false,
@@ -223,6 +224,24 @@ const mainSettings = {
 // Without this rule, setting DEEPGRAM_KEY in .env made the UI field silently useless.
 if (!mainSettings.deepgramApiKey && DEEPGRAM_KEY_ENV) {
     mainSettings.deepgramApiKey = DEEPGRAM_KEY_ENV;
+}
+
+// ─── IPC validation constants ────────────────────────────────
+// `update-settings` spreads its payload into mainSettings — we must drop
+// any key not on the allowlist so a malformed payload can't inject arbitrary
+// state (e.g. a fake `hotkey` value bypassing registration).
+const ALLOWED_SETTINGS_KEYS = new Set(Object.keys(mainSettings));
+const ALLOWED_LANGS = new Set(['fr', 'en', 'auto']);
+const MIN_AUDIO_BYTES = 1000;          // ~smaller than this can't contain audible content
+const MAX_AUDIO_BYTES = 50_000_000;    // 50 MB cap — same as the old multer limit
+
+function pickAllowedKeys(obj, allowedSet) {
+    const out = {};
+    if (!obj || typeof obj !== 'object') return out;
+    for (const k of Object.keys(obj)) {
+        if (allowedSet.has(k)) out[k] = obj[k];
+    }
+    return out;
 }
 
 // ─── WebM repair ────────────────────────────────────────────
@@ -308,6 +327,7 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            sandbox: true,
             // Pill is shown via showInactive() and never gets focus — without
             // this, Chromium classifies it as a backgrounded window and throttles
             // CSS animations, leaving the recording bars frozen on screen.
@@ -315,6 +335,9 @@ function createWindow() {
             preload: path.join(__dirname, 'preload.cjs'),
         },
     });
+
+    // Refuse any window.open() — we never need popups, this blocks XSS pivot.
+    mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
     // ─── Media permissions (critical for file:// protocol in production) ───
     mainWindow.webContents.session.setPermissionRequestHandler((wc, permission, callback) => {
@@ -376,9 +399,12 @@ function createSettingsWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            sandbox: true,
             preload: path.join(__dirname, 'preload.cjs'),
         },
     });
+
+    settingsWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
     if (isDev) settingsWindow.loadURL('http://localhost:5173/#/settings');
     else settingsWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'settings' });
@@ -658,120 +684,139 @@ ipcMain.handle('log-error', (_, msg) => {
     return true;
 });
 
-// ─── Whisper local (via backend proxy) ───────────────────────
-// Sends the WebM buffer to the Express backend at localhost:3001,
-// which forwards it to the Whisper Docker (JSON or multipart).
-function callWhisperLocal(audioBuffer, language, whisperUrl) {
-    return new Promise((resolve, reject) => {
-        const BACKEND_URL = 'http://127.0.0.1:3001';
-        const boundary = '----VoixifyBoundary' + Date.now();
-        const filename = 'audio.webm';
-        const mimeType = 'audio/webm';
+// ─── Whisper STT (direct call from main, no backend hop) ────
+// Posts the WebM buffer straight to the Whisper API (modern faster-whisper
+// or OpenAI-compatible service). Same pattern as callDeepgram — eliminates
+// the previous Express round-trip on localhost:3001 and removes the open-proxy
+// SSRF surface that came with the X-Whisper-URL header relay.
+async function callWhisperDirect(audioBuffer, language, whisperUrl, apiKey) {
+    if (!whisperUrl) {
+        throw new Error('Whisper URL non configurée — ajoutez-la dans Paramètres > Avancé');
+    }
+    // Strip trailing /transcribe if user pasted the full endpoint URL
+    const base = whisperUrl.replace(/\/transcribe\/?$/, '');
 
-        // Build multipart body manually (no external deps in main process)
-        const pre = Buffer.from(
-            `--${boundary}\r\nContent-Disposition: form-data; name="audio"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`
-        );
-        const langField = Buffer.from(
-            `\r\n--${boundary}\r\nContent-Disposition: form-data; name="lang"\r\n\r\n${language}\r\n--${boundary}--\r\n`
-        );
-        const body = Buffer.concat([pre, audioBuffer, langField]);
+    // Manual multipart body — field name 'file' matches modern faster-whisper
+    // APIs (and the secured deployment described in the user's API doc).
+    const boundary = '----VoixifyBoundary' + Date.now() + Math.random().toString(36).slice(2);
+    const filename = 'audio.webm';
+    const mimeType = 'audio/webm';
 
-        const urlObj = new URL(`${BACKEND_URL}/api/transcribe`);
-        const headers = {
-            'Content-Type': `multipart/form-data; boundary=${boundary}`,
-            'Content-Length': body.length,
-        };
-        // Pass user's custom Whisper URL to the backend so it uses it
-        // instead of the env var set at startup
-        if (whisperUrl) {
-            headers['X-Whisper-URL'] = whisperUrl;
-        }
-        const options = {
-            hostname: urlObj.hostname,
-            port: urlObj.port || 3001,
-            path: urlObj.pathname,
-            method: 'POST',
-            headers,
-        };
+    const parts = [];
+    parts.push(Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`
+    ));
+    parts.push(audioBuffer);
+    if (language && language !== 'auto') {
+        parts.push(Buffer.from(
+            `\r\n--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${language}`
+        ));
+    }
+    parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+    const body = Buffer.concat(parts);
 
-        const req = http.request(options, (res) => {
-            let data = '';
-            res.on('data', d => { data += d; });
-            res.on('end', () => {
-                try {
-                    const json = JSON.parse(data);
-                    if (res.statusCode >= 200 && res.statusCode < 300) {
-                        resolve(json.transcript || '');
-                    } else {
-                        reject(new Error(`Backend ${res.statusCode}: ${json.error || data}`));
-                    }
-                } catch {
-                    reject(new Error(`Backend invalid JSON: ${data.substring(0, 200)}`));
-                }
-            });
-        });
-        req.on('error', reject);
-        req.setTimeout(60_000, () => {
-            req.destroy();
-            reject(new Error('Whisper local timeout (60s)'));
-        });
-        req.write(body);
-        req.end();
-    });
+    const headers = {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': body.length,
+    };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+    // Cold start on large-v3 can take 30-60s. We give it 90s here; the renderer
+    // wraps the whole IPC call in its own 120s ceiling so the UI never hangs.
+    const res = await httpPost(`${base}/transcribe`, headers, body, 90_000);
+
+    let data;
+    try {
+        data = JSON.parse(res.body);
+    } catch {
+        throw new Error('Whisper returned invalid JSON');
+    }
+    // Normalize: 'transcription' (faster-whisper legacy), 'text' (OpenAI-compat),
+    // 'result' (some forks). All are equivalent.
+    return data.text || data.transcription || data.result || '';
 }
 
-ipcMain.handle('process-audio', async (_, { audioBase64, lang, deepgramModel, deepgramApiKey, transcriptionSource, whisperUrl }) => {
+ipcMain.handle('process-audio', async (_, payload) => {
+    if (!payload || typeof payload !== 'object') {
+        return { success: false, error: 'Payload invalide' };
+    }
     if (processingAudio) {
         return { success: false, error: 'Déjà en cours de traitement' };
     }
+
+    const { audio, lang, deepgramModel, deepgramApiKey, whisperApiKey, transcriptionSource, whisperUrl } = payload;
+
+    // Audio is a Uint8Array (preferred) or Buffer over IPC structured clone.
+    // Reject anything else early so we don't pay a Buffer.from() on garbage.
+    if (!(audio instanceof Uint8Array) && !Buffer.isBuffer(audio)) {
+        return { success: false, error: 'Audio absent ou format invalide' };
+    }
+
     processingAudio = true;
     startWatchdog();
 
-    // Use values from the renderer payload (Zustand store = persisted source of truth).
-    // Fall back to mainSettings only if payload is missing values (legacy compat).
-    const src = transcriptionSource || mainSettings.transcriptionSource;
-    const language = lang || mainSettings.lang;
-    const dgModel = deepgramModel || mainSettings.deepgramModel;
-    const dgKey = deepgramApiKey || mainSettings.deepgramApiKey;
+    // Settings: prefer renderer payload (Zustand), fall back to mainSettings.
+    // Lang is validated against an allowlist so a malformed payload can't slip
+    // arbitrary strings into the Deepgram/Whisper API URL.
+    const src = transcriptionSource === 'whisper' ? 'whisper' : 'deepgram';
+    const language = ALLOWED_LANGS.has(lang) ? lang : (mainSettings.lang || 'auto');
+    const dgModel = (typeof deepgramModel === 'string' && deepgramModel) || mainSettings.deepgramModel;
+    const dgKey = (typeof deepgramApiKey === 'string' && deepgramApiKey) || mainSettings.deepgramApiKey;
+    const wKey = (typeof whisperApiKey === 'string' && whisperApiKey) || mainSettings.whisperApiKey;
 
     try {
-        const raw = Buffer.from(audioBase64, 'base64');
+        // Pre-validate audio size before any network call — saves a round-trip on
+        // mute/empty recordings and short-circuits oversized payloads.
+        if (audio.byteLength < MIN_AUDIO_BYTES) {
+            return { success: false, error: 'Audio trop court — réessayez en parlant plus longtemps' };
+        }
+        if (audio.byteLength > MAX_AUDIO_BYTES) {
+            return { success: false, error: `Audio trop volumineux (${Math.round(audio.byteLength / 1e6)} MB > 50 MB)` };
+        }
 
+        const raw = Buffer.isBuffer(audio) ? audio : Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength);
         const webmBuffer = fixWebmBuffer(raw);
         if (!webmBuffer) {
-            return { success: false, error: 'Audio invalide (trop court ou corrompu)' };
+            return { success: false, error: 'Audio invalide (en-tête WebM introuvable)' };
         }
 
         let transcript;
         if (src === 'whisper') {
             try {
-                const wUrl = whisperUrl || mainSettings.whisperUrl || process.env.WHISPER_URL || 'http://127.0.0.1:9990';
-                console.log('[PROCESS] Using Whisper URL:', wUrl);
-                transcript = await callWhisperLocal(webmBuffer, language, wUrl);
+                const wUrl = (typeof whisperUrl === 'string' && whisperUrl)
+                    || mainSettings.whisperUrl
+                    || process.env.WHISPER_URL
+                    || 'http://127.0.0.1:9990';
+                console.log('[PROCESS] Whisper →', wUrl, '(auth:', wKey ? 'yes' : 'no', ',', webmBuffer.length, 'bytes)');
+                transcript = await callWhisperDirect(webmBuffer, language, wUrl, wKey);
             } catch (err) {
-                if (err.message?.includes('ECONNREFUSED')) {
-                    return { success: false, error: 'Whisper local injoignable — vérifiez que le backend Docker est lancé' };
+                const msg = err.message || '';
+                if (msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND')) {
+                    return { success: false, error: 'Whisper injoignable — vérifiez l\'URL dans Paramètres > Avancé' };
                 }
-                if (err.message?.includes('timeout')) {
-                    return { success: false, error: 'Whisper local timeout (60s) — le modèle est peut-être surchargé' };
+                if (msg.includes('timeout')) {
+                    return { success: false, error: 'Whisper timeout — le modèle peut être en cold start, réessayez dans 30s' };
                 }
-                return { success: false, error: `Whisper: ${err.message}` };
+                if (msg.includes('401') || msg.includes('403')) {
+                    return { success: false, error: 'Clé API Whisper invalide ou manquante — ajoutez-la dans Paramètres > Transcription' };
+                }
+                return { success: false, error: `Whisper: ${msg}` };
             }
         } else {
             try {
                 transcript = await callDeepgram(webmBuffer, language, dgModel, dgKey);
             } catch (err) {
-                if (err.message?.includes('DEEPGRAM_KEY')) {
+                const msg = err.message || '';
+                if (msg.includes('DEEPGRAM_KEY')) {
                     return { success: false, error: 'Clé API Deepgram manquante — ajoutez-la dans Paramètres > Transcription' };
                 }
-                if (err.message?.includes('401') || err.message?.includes('403')) {
+                if (msg.includes('401') || msg.includes('403')) {
                     return { success: false, error: 'Clé API Deepgram invalide ou expirée' };
                 }
-                if (err.message?.includes('ENOTFOUND') || err.message?.includes('ECONNREFUSED')) {
+                if (msg.includes('ENOTFOUND') || msg.includes('ECONNREFUSED')) {
                     return { success: false, error: 'Deepgram injoignable — vérifiez votre connexion internet' };
                 }
-                return { success: false, error: `Deepgram: ${err.message}` };
+                return { success: false, error: `Deepgram: ${msg}` };
             }
         }
 
@@ -799,10 +844,13 @@ ipcMain.handle('recording-ended', () => {
 // always knows the current configuration, no matter which window
 // last changed a value.
 ipcMain.handle('update-settings', (_, partial) => {
-    const modeChanged = partial.hotkeyMode !== undefined
-        && partial.hotkeyMode !== mainSettings.hotkeyMode;
+    // Drop any key not on the allowlist — prevents a malformed payload from
+    // injecting arbitrary fields into mainSettings (e.g. fake hotkey strings).
+    const safe = pickAllowedKeys(partial, ALLOWED_SETTINGS_KEYS);
+    const modeChanged = safe.hotkeyMode !== undefined
+        && safe.hotkeyMode !== mainSettings.hotkeyMode;
 
-    Object.assign(mainSettings, partial);
+    Object.assign(mainSettings, safe);
 
     // Persist to disk so settings survive full app restarts
     savePersistedSettings(mainSettings);

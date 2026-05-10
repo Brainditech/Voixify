@@ -50,6 +50,7 @@ interface VoixifyState {
     ollamaModel: string;
     deepgramModel: string;
     deepgramApiKey: string;
+    whisperApiKey: string;
     transcriptionSource: TranscriptionSource;
     autopasteEnabled: boolean;
     llmCorrectionEnabled: boolean;
@@ -78,6 +79,7 @@ interface VoixifyState {
     setOllamaModel: (m: string) => void;
     setDeepgramModel: (m: string) => void;
     setDeepgramApiKey: (k: string) => void;
+    setWhisperApiKey: (k: string) => void;
     setTranscriptionSource: (s: TranscriptionSource) => void;
     setAutopasteEnabled: (v: boolean) => void;
     setLlmCorrectionEnabled: (v: boolean) => void;
@@ -111,6 +113,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             ollamaModel: 'kimi-k2.5:cloud',
             deepgramModel: 'nova-3',
             deepgramApiKey: '',
+            whisperApiKey: '',
             transcriptionSource: 'deepgram',
             autopasteEnabled: true,
             llmCorrectionEnabled: false,
@@ -137,6 +140,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             setOllamaModel: (m) => set({ ollamaModel: m }),
             setDeepgramModel: (m) => set({ deepgramModel: m }),
             setDeepgramApiKey: (k) => set({ deepgramApiKey: k }),
+            setWhisperApiKey: (k) => set({ whisperApiKey: k }),
             setTranscriptionSource: (s) => set({ transcriptionSource: s }),
             setAutopasteEnabled: (v) => set({ autopasteEnabled: v }),
             setLlmCorrectionEnabled: (v) => set({ llmCorrectionEnabled: v }),
@@ -153,8 +157,8 @@ export const useVoixifyStore = create<VoixifyState>()(
             reset: () => set({ recordingState: 'idle', rawTranscript: '', correctedText: '', errorMessage: null, toastMessage: null }),
         }),
         {
-            name: 'voixify-v6',
-            version: 6,
+            name: 'voixify-v7',
+            version: 7,
             migrate: (persistedState: any, version: number) => {
                 let state = persistedState;
                 if (version < 2) {
@@ -190,12 +194,16 @@ export const useVoixifyStore = create<VoixifyState>()(
                 if (version < 6) {
                     state = { ...state, hotkeyMode: state?.hotkeyMode || 'hold' };
                 }
+                if (version < 7) {
+                    state = { ...state, whisperApiKey: state?.whisperApiKey || '' };
+                }
                 return state;
             },
             partialize: (s) => ({
                 lang: s.lang, mode: s.mode, correctionLevel: s.correctionLevel,
                 hotkey: s.hotkey, hotkeyMode: s.hotkeyMode,
                 ollamaModel: s.ollamaModel, deepgramModel: s.deepgramModel, deepgramApiKey: s.deepgramApiKey,
+                whisperApiKey: s.whisperApiKey,
                 transcriptionSource: s.transcriptionSource, autopasteEnabled: s.autopasteEnabled,
                 llmCorrectionEnabled: s.llmCorrectionEnabled, selectedMicId: s.selectedMicId,
                 whisperUrl: s.whisperUrl,

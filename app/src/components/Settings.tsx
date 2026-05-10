@@ -60,6 +60,7 @@ export default function Settings() {
         ollamaModel, setOllamaModel,
         deepgramModel, setDeepgramModel,
         deepgramApiKey, setDeepgramApiKey,
+        whisperApiKey, setWhisperApiKey,
         transcriptionSource, setTranscriptionSource,
         whisperUrl, setWhisperUrl,
         ollamaUrl, setOllamaUrl,
@@ -74,8 +75,11 @@ export default function Settings() {
     const [modelsLoading, setModelsLoading] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
     const [apiKeySaved, setApiKeySaved] = useState(false);
+    const [showWhisperKey, setShowWhisperKey] = useState(false);
+    const [whisperKeySaved, setWhisperKeySaved] = useState(false);
     const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
     const apiKeySaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const whisperKeySaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Ollama pull state — tracks an in-flight `ollama pull` streamed over HTTP.
     const [pullState, setPullState] = useState<{
@@ -116,6 +120,7 @@ export default function Settings() {
                 const merged = {
                     transcriptionSource, lang, deepgramModel,
                     deepgramApiKey: (saved?.deepgramApiKey || deepgramApiKey),
+                    whisperApiKey: (saved?.whisperApiKey || whisperApiKey),
                     correctionLevel, llmCorrectionEnabled,
                     autopasteEnabled, ollamaModel,
                     selectedMicId: (saved?.selectedMicId || selectedMicId),
@@ -124,6 +129,7 @@ export default function Settings() {
 
                 if (saved?.hotkey) setHotkey(saved.hotkey);
                 if (saved?.deepgramApiKey) setDeepgramApiKey(saved.deepgramApiKey);
+                if (saved?.whisperApiKey) setWhisperApiKey(saved.whisperApiKey);
                 if (saved?.selectedMicId) setSelectedMicId(saved.selectedMicId);
 
                 await api?.updateSettings(merged);
@@ -414,6 +420,62 @@ export default function Settings() {
                                         : 'Local — privé, gratuit, nécessite le backend Docker'}
                                 </p>
                             </section>
+
+                            {/* Clé API Whisper */}
+                            {transcriptionSource === 'whisper' && (
+                                <section className="settings-section">
+                                    <h2 className="settings-section-title">Clé API Whisper</h2>
+                                    <div className="api-key-row">
+                                        <input
+                                            className="settings-input api-key-input"
+                                            type={showWhisperKey ? 'text' : 'password'}
+                                            value={whisperApiKey}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                setWhisperApiKey(val);
+                                                if (whisperKeySaveTimer.current) clearTimeout(whisperKeySaveTimer.current);
+                                                whisperKeySaveTimer.current = setTimeout(() => {
+                                                    api?.updateSettings({ whisperApiKey: val })
+                                                        .then(() => {
+                                                            setWhisperKeySaved(true);
+                                                            setTimeout(() => setWhisperKeySaved(false), 2500);
+                                                        })
+                                                        .catch(() => {});
+                                                }, 400);
+                                            }}
+                                            placeholder="Collez votre clé API Whisper ici…"
+                                            spellCheck={false}
+                                            autoComplete="off"
+                                        />
+                                        <button
+                                            className="api-key-toggle"
+                                            onClick={() => setShowWhisperKey(!showWhisperKey)}
+                                            title={showWhisperKey ? 'Masquer' : 'Afficher'}
+                                            type="button"
+                                        >
+                                            {showWhisperKey ? (
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                                                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                                                    <line x1="1" y1="1" x2="23" y2="23" />
+                                                </svg>
+                                            ) : (
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                                    <circle cx="12" cy="12" r="3" />
+                                                </svg>
+                                            )}
+                                        </button>
+                                    </div>
+                                    <p className="settings-hint" style={{ color: whisperKeySaved ? '#4ade80' : undefined }}>
+                                        {whisperKeySaved
+                                            ? '✓ Clé sauvegardée dans le profil'
+                                            : whisperApiKey
+                                                ? '✓ Clé configurée — envoyée en Bearer token à Whisper'
+                                                : '⚠ Aucune clé — laissez vide si votre instance Whisper n\'en exige pas'}
+                                    </p>
+                                </section>
+                            )}
 
                             {/* Clé API Deepgram */}
                             {transcriptionSource === 'deepgram' && (

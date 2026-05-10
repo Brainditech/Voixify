@@ -1,6 +1,6 @@
 const express = require('express');
-const fetch = require('node-fetch');
 const router = express.Router();
+// Uses Node 18+ native fetch — no `node-fetch` dep needed.
 
 // ─── Constants ───────────────────────────────────────────────
 const OLLAMA_TIMEOUT_MS = 60_000; // 60 seconds
@@ -101,7 +101,9 @@ router.post('/', async (req, res) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(ollamaPayload),
-            timeout: OLLAMA_TIMEOUT_MS,
+            // Native fetch has no timeout option; AbortSignal.timeout produces
+            // a DOMException with name 'TimeoutError' on expiry.
+            signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
         });
 
         if (!ollamaRes.ok) {
@@ -138,12 +140,17 @@ router.post('/', async (req, res) => {
 
         res.json({ correctedText: corrected.trim(), model });
     } catch (err) {
-        // Build a user-friendly error message
+        // Build a user-friendly error message.
+        // Native fetch wraps low-level errors under err.cause; older code paths
+        // use err.code / err.message directly. Check both.
         let userError = err.message;
-        if (err.code === 'ECONNREFUSED' || err.message?.includes('ECONNREFUSED')) {
+        const causeCode = err.cause?.code;
+        if (causeCode === 'ECONNREFUSED' || err.code === 'ECONNREFUSED' || err.message?.includes('ECONNREFUSED')) {
             const attemptedUrl = req.body.ollamaUrl || process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
             userError = `Ollama injoignable sur ${attemptedUrl} — vérifiez qu'Ollama est lancé`;
-        } else if (err.type === 'request-timeout' || err.message?.includes('timeout')) {
+        } else if (causeCode === 'ENOTFOUND' || err.code === 'ENOTFOUND') {
+            userError = `Ollama URL invalide — DNS introuvable`;
+        } else if (err.name === 'TimeoutError' || err.name === 'AbortError' || err.message?.includes('timeout')) {
             userError = `Ollama timeout (60s) — le modèle est peut-être trop lourd`;
         } else if (err.message?.includes('404') || err.message?.includes('model')) {
             userError = `Modèle IA introuvable — vérifiez le nom du modèle dans les paramètres`;

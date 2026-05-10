@@ -2,7 +2,10 @@ import { useCallback, useRef } from 'react';
 import { useAudioRecorder } from './useAudioRecorder';
 import { useVoixifyStore } from '../stores/voixifyStore';
 
-const PROCESS_TIMEOUT_MS = 30_000; // 30s max for transcription
+// 120s ceiling — large-v3 cold start (model download + VRAM load) can take
+// 30-60s on a fresh server. The previous 30s timeout was too aggressive and
+// silently dropped the first transcription (paste never fired).
+const PROCESS_TIMEOUT_MS = 120_000;
 
 export function useVoixify() {
     const { start, stop, isRecording } = useAudioRecorder();
@@ -36,21 +39,16 @@ export function useVoixify() {
                 return;
             }
 
-            const base64data = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onerror = () => reject(new Error('FileReader failed'));
-                reader.onloadend = () => {
-                    const result = reader.result as string;
-                    resolve(result.split(',')[1]);
-                };
-                reader.readAsDataURL(blob);
-            });
+            // Send the audio as a Uint8Array via Electron's structured-clone IPC.
+            // Avoids the ~33% base64 overhead and an extra encode/decode cycle.
+            const audio = new Uint8Array(await blob.arrayBuffer());
 
             // ─── Read ALL settings from Zustand store (persisted, single source of truth) ───
             const {
                 lang,
                 deepgramModel,
                 deepgramApiKey,
+                whisperApiKey,
                 transcriptionSource,
                 llmCorrectionEnabled,
                 correctionLevel,
@@ -62,15 +60,16 @@ export function useVoixify() {
             // Timeout wrapper so the UI never gets permanently stuck in 'processing'
             const result = await Promise.race([
                 api.processAudio({
-                    audioBase64: base64data,
+                    audio,
                     lang,
                     deepgramModel,
                     deepgramApiKey,
+                    whisperApiKey,
                     transcriptionSource,
                     whisperUrl,
                 }),
                 new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('Transcription timeout (30s) — vérifiez votre connexion')), PROCESS_TIMEOUT_MS)
+                    setTimeout(() => reject(new Error('Transcription timeout (2 min) — si c\'est le 1er enregistrement, le modèle Whisper se charge encore, réessayez')), PROCESS_TIMEOUT_MS)
                 ),
             ]);
 

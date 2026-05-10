@@ -2,12 +2,13 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env'
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const transcribeRoute = require('./routes/transcribe');
 const correctRoute = require('./routes/correct');
 const healthRoute = require('./routes/health');
 
 // ─── Validate required env vars at startup ───────────────────
-const REQUIRED_ENV = ['WHISPER_URL', 'OLLAMA_URL', 'OLLAMA_MODEL'];
+// Whisper is now called directly from the Electron main process (no backend hop),
+// so this server only proxies Ollama. WHISPER_URL is no longer required here.
+const REQUIRED_ENV = ['OLLAMA_URL', 'OLLAMA_MODEL'];
 for (const key of REQUIRED_ENV) {
   if (!process.env[key]) {
     console.warn(`[ENV] ${key} not set — using default.`);
@@ -16,9 +17,14 @@ for (const key of REQUIRED_ENV) {
 
 const app = express();
 const PORT = process.env.BACKEND_PORT || 3001;
+const isProd = process.env.NODE_ENV === 'production';
 
-// Middleware
-app.use(cors({ origin: '*' }));
+// CORS — restricted to the Electron renderer origins. file:// is the packaged app,
+// localhost:5173 is Vite dev server. cors() without origin set returns the request's
+// Origin header which would re-open the door, so we use an explicit allowlist.
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'file://'],
+}));
 app.use(express.json({ limit: '50mb' }));
 
 // Rate limiting
@@ -29,8 +35,7 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Routes
-app.use('/api/transcribe', transcribeRoute);
+// Routes — Whisper transcription is handled in the Electron main process now.
 app.use('/api/correct', correctRoute);
 app.use('/api/health', healthRoute);
 app.use('/api/models', require('./routes/models'));
@@ -41,18 +46,21 @@ app.use((req, res) => {
 });
 
 // Error handler (Express detects 4-arg signature for error middleware)
+// In production we never echo the raw error message back — it can leak file paths
+// and internals. The full error is logged server-side.
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error('[ERROR]', err.message);
-  res.status(500).json({ error: err.message || 'Internal server error' });
+  res.status(500).json({
+    error: isProd ? 'Internal server error' : (err.message || 'Internal server error'),
+  });
 });
 
-// Normalize WHISPER_URL — strip trailing /transcribe so the call in transcribe.js doesn't duplicate it
-const rawWhisperUrl = process.env.WHISPER_URL || 'http://localhost:9990';
-process.env.WHISPER_URL = rawWhisperUrl.replace(/\/transcribe\/?$/, '');
-
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Voixify Backend ready on :${PORT}`);
+// Bind on loopback only — this backend is an Electron-internal proxy and has no
+// reason to be reachable from the LAN. Combined with the CORS allowlist above,
+// this prevents network attackers from abusing the open-proxy / SSRF surface.
+const server = app.listen(PORT, '127.0.0.1', () => {
+  console.log(`Voixify Backend ready on 127.0.0.1:${PORT}`);
 });
 
 server.on('error', (err) => {

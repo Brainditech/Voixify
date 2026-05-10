@@ -1,16 +1,15 @@
 const express = require('express');
-const fetch = require('node-fetch');
 const router = express.Router();
+// Uses Node 18+ native fetch — no `node-fetch` dep needed.
 
 router.get('/', async (req, res) => {
     const whisperUrl = process.env.WHISPER_URL || 'http://127.0.0.1:9990';
     const ollamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
 
     const checks = await Promise.allSettled([
-        // Check Whisper — allSettled never rejects, so no .catch() needed
-        fetch(`${whisperUrl}/`, { method: 'GET', timeout: 3000 }),
-        // Check Ollama
-        fetch(`${ollamaUrl}/api/tags`, { method: 'GET', timeout: 3000 }),
+        // Native fetch uses AbortSignal.timeout instead of node-fetch's `timeout` opt.
+        fetch(`${whisperUrl}/`, { method: 'GET', signal: AbortSignal.timeout(3000) }),
+        fetch(`${ollamaUrl}/api/tags`, { method: 'GET', signal: AbortSignal.timeout(3000) }),
     ]);
 
     const whisperOk = checks[0].status === 'fulfilled' && checks[0].value?.ok === true;
