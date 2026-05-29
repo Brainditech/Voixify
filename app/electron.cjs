@@ -407,6 +407,27 @@ function getAppIcon() {
     return nativeImage.createEmpty();
 }
 
+// ─── webContents hardening ───────────────────────────────────
+// Applied to every window. Denies popups and pins the renderer to its own
+// bundle: any in-page navigation to a remote origin (e.g. an injected
+// `location = 'http://evil…'`) is cancelled. sandbox + contextIsolation
+// already block Node access, but blocking navigation also kills the
+// phishing / exfiltration pivot.
+function hardenWebContents(wc) {
+    wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+    const isAllowedNav = (url) => isDev
+        ? url.startsWith('http://localhost:5173')
+        : url.startsWith('file://');
+    const blockNav = (e, url) => {
+        if (!isAllowedNav(url)) {
+            console.warn('[NAV] Blocked navigation to', url);
+            e.preventDefault();
+        }
+    };
+    wc.on('will-navigate', blockNav);
+    wc.on('will-redirect', blockNav);
+}
+
 // ─── Create pill window ──────────────────────────────────────
 function createWindow() {
     const pos = pillPos();
@@ -431,8 +452,8 @@ function createWindow() {
         },
     });
 
-    // Refuse any window.open() — we never need popups, this blocks XSS pivot.
-    mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    // Deny popups + block off-app navigation (see hardenWebContents).
+    hardenWebContents(mainWindow.webContents);
 
     // ─── Media permissions (critical for file:// protocol in production) ───
     mainWindow.webContents.session.setPermissionRequestHandler((wc, permission, callback) => {
@@ -499,7 +520,7 @@ function createSettingsWindow() {
         },
     });
 
-    settingsWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    hardenWebContents(settingsWindow.webContents);
 
     if (isDev) settingsWindow.loadURL('http://localhost:5173/#/settings');
     else settingsWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'settings' });
@@ -544,7 +565,7 @@ function createTranscribeWindow() {
         },
     });
 
-    transcribeWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    hardenWebContents(transcribeWindow.webContents);
 
     if (isDev) transcribeWindow.loadURL('http://localhost:5173/#/transcribe');
     else transcribeWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'transcribe' });
@@ -845,7 +866,11 @@ ipcMain.handle('renderer-ready', () => {
 });
 
 ipcMain.handle('log-error', (_, msg) => {
-    fs.appendFileSync(getLogFile(), msg + '\n');
+    // The preload relays every renderer console.log/error here. Route them
+    // through the buffered async logger instead of a synchronous appendFileSync
+    // on the main thread — a chatty renderer was stalling the UI on disk I/O.
+    // Bound the payload so a runaway log line can't blow up the buffer.
+    queueLog('RENDERER', [String(msg).slice(0, 8192)]);
     return true;
 });
 
