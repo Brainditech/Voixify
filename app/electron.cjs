@@ -345,6 +345,7 @@ const TRANSCRIBE_FILE_TIMEOUT_MS = 30 * 60 * 1000;
 let mainWindow = null;
 let settingsWindow = null;
 let transcribeWindow = null;
+let toastWindow = null;
 let tray = null;
 let currentHotkey = persistedSettings.hotkey || 'CommandOrControl+Space';
 let isRecordingActive = false;
@@ -575,6 +576,64 @@ function createTranscribeWindow() {
 
     transcribeWindow.once('ready-to-show', () => transcribeWindow.show());
     transcribeWindow.on('closed', () => { transcribeWindow = null; });
+}
+
+// ─── Toast notifications (bottom-right) ──────────────────────
+// A small, frameless, non-focusable always-on-top window that surfaces
+// errors/warnings the user would otherwise never see (the pill just hides on
+// failure). Lazily created on the first toast, then reused. Like the pill it
+// uses showInactive() so it never steals focus while the user is typing.
+const TOAST_W = 372;
+const TOAST_H = 104;
+const TOAST_MARGIN = 16;
+
+function toastPos() {
+    const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
+    return { x: sw - TOAST_W - TOAST_MARGIN, y: sh - TOAST_H - TOAST_MARGIN };
+}
+
+function createToastWindow() {
+    if (toastWindow && !toastWindow.isDestroyed()) return toastWindow;
+    const pos = toastPos();
+    toastWindow = new BrowserWindow({
+        width: TOAST_W, height: TOAST_H, x: pos.x, y: pos.y,
+        frame: false, transparent: true, resizable: false, movable: false,
+        alwaysOnTop: true, skipTaskbar: true, hasShadow: false,
+        focusable: false, show: false, backgroundColor: '#00000000',
+        icon: getAppIcon(),
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+            backgroundThrottling: false,
+            preload: path.join(__dirname, 'preload.cjs'),
+        },
+    });
+    hardenWebContents(toastWindow.webContents);
+    if (isDev) toastWindow.loadURL('http://localhost:5173/#/toast');
+    else toastWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'toast' });
+    toastWindow.on('closed', () => { toastWindow = null; });
+    return toastWindow;
+}
+
+const TOAST_TYPES = new Set(['error', 'warning', 'info']);
+function showToast(type, message) {
+    const t = TOAST_TYPES.has(type) ? type : 'error';
+    const msg = String(message == null ? '' : message).slice(0, 300).trim();
+    if (!msg) return;
+    const win = createToastWindow();
+    win.setBounds({ width: TOAST_W, height: TOAST_H, ...toastPos() });
+    win.setAlwaysOnTop(true, 'screen-saver');
+    win.showInactive();
+    const payload = { type: t, message: msg };
+    // First-ever toast: the renderer is still loading — defer the send.
+    if (win.webContents.isLoading()) {
+        win.webContents.once('did-finish-load', () => {
+            if (toastWindow && !toastWindow.isDestroyed()) toastWindow.webContents.send('toast-show', payload);
+        });
+    } else {
+        win.webContents.send('toast-show', payload);
+    }
 }
 
 // ─── Show pill ───────────────────────────────────────────────
@@ -1320,6 +1379,18 @@ ipcMain.handle('close-settings', () => {
 ipcMain.handle('open-transcribe', () => createTranscribeWindow());
 ipcMain.handle('close-transcribe', () => {
     if (transcribeWindow && !transcribeWindow.isDestroyed()) transcribeWindow.close();
+});
+
+// Toast notifications — any renderer can raise one; the Toast window owns the
+// auto-dismiss timer and asks main to hide via 'hide-toast' after the fade.
+ipcMain.handle('show-toast', (_, payload) => {
+    if (!payload || typeof payload !== 'object') return false;
+    showToast(payload.type, payload.message);
+    return true;
+});
+ipcMain.handle('hide-toast', () => {
+    if (toastWindow && !toastWindow.isDestroyed()) toastWindow.hide();
+    return true;
 });
 
 // ─── Backend Manager ──────────────────────────────────────────

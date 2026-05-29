@@ -1158,3 +1158,88 @@ body,
   line-height: 1.5;
   max-width: 540px;
 }
+
+/* ─── Toast notifications (bottom-right window) ───────────────── */
+.vx-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  width: calc(100% - 24px);
+  max-width: 340px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(20, 20, 26, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  color: #f4f4f6;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-app-region: no-drag;
+  opacity: 1;
+  transition: opacity 280ms ease, transform 280ms ease;
+  animation: vx-toast-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.vx-toast.leaving {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.vx-toast-icon {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  color: #fff;
+}
+
+.vx-toast-msg {
+  flex: 1 1 auto;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.vx-toast-error {
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.vx-toast-error .vx-toast-icon {
+  background: #ef4444;
+}
+
+.vx-toast-warning {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.vx-toast-warning .vx-toast-icon {
+  background: #f59e0b;
+}
+
+.vx-toast-info {
+  border-color: rgba(74, 222, 128, 0.45);
+}
+
+.vx-toast-info .vx-toast-icon {
+  background: #4ade80;
+  color: #07210f;
+}
+
+@keyframes vx-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

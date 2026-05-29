@@ -35,6 +35,7 @@ export function useVoixify() {
             await start();
         } catch (err) {
             console.error('[RECORDER] Start error:', err);
+            window.voixify?.notify('error', 'Micro indisponible — vérifiez les permissions audio.');
         }
     }, [start, isRecording]);
 
@@ -117,6 +118,7 @@ export function useVoixify() {
                         } else {
                             const errText = await res.text().catch(() => '');
                             console.error('[API] Correction failed:', res.status, errText.substring(0, 200));
+                            api.notify('warning', 'Correction IA échouée — texte brut collé.');
                         }
                     } catch (err: any) {
                         // Network error = Ollama or backend unreachable
@@ -125,6 +127,7 @@ export function useVoixify() {
                         } else {
                             console.error('[API] Correction error:', err.message);
                         }
+                        api.notify('warning', 'Correction IA indisponible — texte brut collé.');
                         // Continue with uncorrected text — don't fail the whole flow
                     }
                 }
@@ -141,19 +144,30 @@ export function useVoixify() {
                 });
                 api.pasteText(finalTranscript);
             } else {
-                // Transcription failed — log error and hide
+                // Transcription failed — surface a toast so the user isn't left
+                // wondering why nothing was pasted, then hide the pill.
                 console.error('[API] Transcription failed:', result.error);
+                const raw = result.error || '';
+                const friendly = /aucun texte|no text|aucun son/i.test(raw)
+                    ? 'Aucun son capté — le micro est-il coupé ?'
+                    : (raw || 'Échec de la transcription.');
+                api.notify('error', friendly);
                 api.hideWindow();
             }
         } catch (err: any) {
-            // Handle specific error types for better diagnostics
+            // Handle specific error types for better diagnostics + user feedback
+            let userMsg: string;
             if (err.message?.includes('timeout')) {
                 console.error('[RECORDER] Transcription timed out — API may be slow or unreachable');
+                userMsg = 'Délai dépassé — le service de transcription est lent ou injoignable.';
             } else if (err.message?.includes('ECONNREFUSED')) {
                 console.error('[RECORDER] Cannot connect to API — is the backend running?');
+                userMsg = 'Connexion impossible au service de transcription.';
             } else {
                 console.error('[RECORDER] Stop error:', err.message);
+                userMsg = err.message || 'Erreur inattendue pendant la transcription.';
             }
+            api?.notify('error', userMsg);
             api?.hideWindow();
         } finally {
             processingRef.current = false;

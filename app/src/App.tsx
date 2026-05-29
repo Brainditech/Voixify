@@ -5,15 +5,18 @@ import { useVoixifyStore } from './stores/voixifyStore';
 import { useSyncSettings } from './hooks/useSyncSettings';
 import Settings from './components/Settings';
 import FileTranscriber from './components/FileTranscriber';
+import Toast from './components/Toast';
 
 // Hash-based routing: each Electron BrowserWindow loads the same bundle but
-// with a different hash. The pill window has no special hash; settings and
-// transcribe windows each render their own root component.
+// with a different hash. The pill window has no special hash; settings,
+// transcribe and toast windows each render their own root component.
 const hash = window.location.hash;
 const isSettingsWindow = hash.includes('settings');
 const isTranscribeWindow = hash.includes('transcribe');
+const isToastWindow = hash.includes('toast');
 
 export default function App() {
+    if (isToastWindow) return <Toast />;
     if (isTranscribeWindow) return <FileTranscriber />;
     if (isSettingsWindow) return <Settings />;
     return <Pill />;

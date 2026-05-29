@@ -45,6 +45,11 @@ contextBridge.exposeInMainWorld('voixify', {
     transcribeFile: (payload) => ipcRenderer.invoke('transcribe-file', payload),
     saveTranscription: (payload) => ipcRenderer.invoke('save-transcription', payload),
 
+    // Toast notifications (bottom-right). `notify` raises one from any window;
+    // `hideToast` is called by the Toast window itself after its fade-out.
+    notify: (type, message) => ipcRenderer.invoke('show-toast', { type, message }),
+    hideToast: () => ipcRenderer.invoke('hide-toast'),
+
     // Events from main → renderer.
     // Each `on*` registration first clears any previous listener for that channel
     // so HMR / re-mounts don't accumulate duplicate handlers (would fire the
@@ -67,5 +72,10 @@ contextBridge.exposeInMainWorld('voixify', {
     onSettingsChanged: (cb) => {
         ipcRenderer.removeAllListeners('settings-changed');
         ipcRenderer.on('settings-changed', (_, settings) => cb(settings));
+    },
+    // Toast window subscribes here to receive {type, message} payloads.
+    onToast: (cb) => {
+        ipcRenderer.removeAllListeners('toast-show');
+        ipcRenderer.on('toast-show', (_, payload) => cb(payload));
     },
 });

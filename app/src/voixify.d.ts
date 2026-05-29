@@ -57,6 +57,12 @@ export interface UpdateHotkeyResult {
     error?: string;
 }
 
+export type ToastType = 'error' | 'warning' | 'info';
+export interface ToastPayload {
+    type: ToastType;
+    message: string;
+}
+
 export interface VoixifyApi {
     // Pill lifecycle
     rendererReady(): Promise<void>;
@@ -82,11 +88,16 @@ export interface VoixifyApi {
     transcribeFile(payload: TranscribeFilePayload): Promise<TranscribeResult>;
     saveTranscription(payload: SaveTranscriptionPayload): Promise<SaveTranscriptionResult>;
 
+    // Toast notifications (bottom-right window)
+    notify(type: ToastType, message: string): Promise<boolean>;
+    hideToast(): Promise<boolean>;
+
     // Events from main → renderer
     onStateChange(cb: (state: string) => void): void;
     onStopRecording(cb: () => void): void;
     onArmRecording(cb: () => void): void;
     onSettingsChanged(cb: (settings: Record<string, unknown>) => void): void;
+    onToast(cb: (payload: ToastPayload) => void): void;
 }
 
 declare global {
