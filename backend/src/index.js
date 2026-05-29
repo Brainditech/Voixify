@@ -1,5 +1,6 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env'), quiet: true });
 const express = require('express');
+const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const correctRoute = require('./routes/correct');
@@ -18,6 +19,11 @@ for (const key of REQUIRED_ENV) {
 const app = express();
 const PORT = process.env.BACKEND_PORT || 3001;
 const isProd = process.env.NODE_ENV === 'production';
+
+// Security headers. This is a JSON-only loopback API (no HTML served), so the
+// helmet defaults are safe and don't interfere with CORS below. Keep it first
+// so every response — including 404s and errors — carries the headers.
+app.use(helmet());
 
 // CORS — restricted to the Electron renderer origins. file:// is the packaged app,
 // localhost:5173 is Vite dev server. cors() without origin set returns the request's
