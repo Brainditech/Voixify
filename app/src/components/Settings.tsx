@@ -66,6 +66,7 @@ export default function Settings() {
         deepgramModel,
         deepgramApiKey, setDeepgramApiKey,
         whisperApiKey, setWhisperApiKey,
+        initialPrompt, setInitialPrompt,
         transcriptionSource,
         whisperUrl,
         ollamaUrl,
@@ -92,6 +93,7 @@ export default function Settings() {
     const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
     const apiKeySaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const whisperKeySaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const initialPromptSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Ollama pull state — tracks an in-flight `ollama pull` streamed over HTTP.
     const [pullState, setPullState] = useState<{
@@ -451,7 +453,33 @@ export default function Settings() {
                                             ? '✓ Clé sauvegardée dans le profil'
                                             : whisperApiKey
                                                 ? '✓ Clé configurée — envoyée en Bearer token à Whisper'
-                                                : '⚠ Aucune clé — laissez vide si votre instance Whisper n\'en exige pas'}
+                                                : '⚠ Beaucoup d\'instances auto-hébergées (dont l\'API Docker) EXIGENT une clé — elle doit correspondre à API_KEY du serveur.'}
+                                    </p>
+                                </section>
+                            )}
+
+                            {/* Vocabulaire / prompt initial (Whisper uniquement) */}
+                            {transcriptionSource === 'whisper' && (
+                                <section className="settings-section">
+                                    <h2 className="settings-section-title">Vocabulaire / prompt initial</h2>
+                                    <textarea
+                                        className="settings-input"
+                                        style={{ minHeight: 72, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.4 }}
+                                        value={initialPrompt}
+                                        onChange={e => {
+                                            const val = e.target.value;
+                                            setInitialPrompt(val);
+                                            if (initialPromptSaveTimer.current) clearTimeout(initialPromptSaveTimer.current);
+                                            initialPromptSaveTimer.current = setTimeout(() => {
+                                                api?.updateSettings({ initialPrompt: val }).catch(() => {});
+                                            }, 400);
+                                        }}
+                                        placeholder="Noms propres, jargon, sigles… ex : Brainditech, Voixify, Deepgram, Kubernetes, ARN"
+                                        spellCheck={false}
+                                    />
+                                    <p className="settings-hint">
+                                        Envoyé comme <code>initial_prompt</code> à Whisper : oriente l'orthographe des noms,
+                                        du jargon et des accents. Le plus gros levier de précision pour la dictée.
                                     </p>
                                 </section>
                             )}

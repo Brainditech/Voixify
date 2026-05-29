@@ -17,6 +17,7 @@ export type SyncableSettingKey =
     | 'deepgramModel'
     | 'deepgramApiKey'
     | 'whisperApiKey'
+    | 'initialPrompt'
     | 'whisperUrl'
     | 'ollamaUrl'
     | 'ollamaModel'
@@ -37,6 +38,7 @@ function applyPayloadToStore(payload: Record<string, unknown>): void {
     if (payload.deepgramModel !== undefined) s.setDeepgramModel(payload.deepgramModel as any);
     if (payload.deepgramApiKey !== undefined) s.setDeepgramApiKey(payload.deepgramApiKey as any);
     if (payload.whisperApiKey !== undefined) s.setWhisperApiKey(payload.whisperApiKey as any);
+    if (payload.initialPrompt !== undefined) s.setInitialPrompt(payload.initialPrompt as any);
     if (payload.whisperUrl !== undefined) s.setWhisperUrl(payload.whisperUrl as any);
     if (payload.ollamaUrl !== undefined) s.setOllamaUrl(payload.ollamaUrl as any);
     if (payload.ollamaModel !== undefined) s.setOllamaModel(payload.ollamaModel as any);

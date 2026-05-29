@@ -51,6 +51,8 @@ interface VoixifyState {
     deepgramModel: string;
     deepgramApiKey: string;
     whisperApiKey: string;
+    // Whisper-only lexicon hint (names, jargon, accents), sent as `initial_prompt`.
+    initialPrompt: string;
     transcriptionSource: TranscriptionSource;
     autopasteEnabled: boolean;
     llmCorrectionEnabled: boolean;
@@ -85,6 +87,7 @@ interface VoixifyState {
     setDeepgramModel: (m: string) => void;
     setDeepgramApiKey: (k: string) => void;
     setWhisperApiKey: (k: string) => void;
+    setInitialPrompt: (p: string) => void;
     setTranscriptionSource: (s: TranscriptionSource) => void;
     setAutopasteEnabled: (v: boolean) => void;
     setLlmCorrectionEnabled: (v: boolean) => void;
@@ -153,6 +156,10 @@ export function migrateVoixifyState(persistedState: any, version: number): any {
         // a problem.
         state = { ...state, lowLatencyMode: state?.lowLatencyMode ?? true };
     }
+    if (version < 10) {
+        // New Whisper lexicon hint (initial_prompt). Empty by default.
+        state = { ...state, initialPrompt: state?.initialPrompt ?? '' };
+    }
     return state;
 }
 
@@ -174,6 +181,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             deepgramModel: 'nova-3',
             deepgramApiKey: '',
             whisperApiKey: '',
+            initialPrompt: '',
             transcriptionSource: 'deepgram',
             autopasteEnabled: true,
             llmCorrectionEnabled: false,
@@ -202,6 +210,7 @@ export const useVoixifyStore = create<VoixifyState>()(
             setDeepgramModel: (m) => set({ deepgramModel: m }),
             setDeepgramApiKey: (k) => set({ deepgramApiKey: k }),
             setWhisperApiKey: (k) => set({ whisperApiKey: k }),
+            setInitialPrompt: (p) => set({ initialPrompt: p }),
             setTranscriptionSource: (s) => set({ transcriptionSource: s }),
             setAutopasteEnabled: (v) => set({ autopasteEnabled: v }),
             setLlmCorrectionEnabled: (v) => set({ llmCorrectionEnabled: v }),
@@ -220,7 +229,7 @@ export const useVoixifyStore = create<VoixifyState>()(
         }),
         {
             name: 'voixify-v9',
-            version: 9,
+            version: 10,
             migrate: (persistedState: any, version: number) => migrateVoixifyState(persistedState, version),
             partialize: (s) => ({
                 // Settings persistence: the main process (settings.json) is now the
@@ -235,6 +244,7 @@ export const useVoixifyStore = create<VoixifyState>()(
                 transcriptionSource: s.transcriptionSource, autopasteEnabled: s.autopasteEnabled,
                 llmCorrectionEnabled: s.llmCorrectionEnabled, selectedMicId: s.selectedMicId,
                 lowLatencyMode: s.lowLatencyMode,
+                initialPrompt: s.initialPrompt,
                 whisperUrl: s.whisperUrl,
                 ollamaUrl: s.ollamaUrl, history: s.history,
             }),
