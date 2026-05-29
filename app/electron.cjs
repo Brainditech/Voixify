@@ -270,6 +270,9 @@ const mainSettings = {
     deepgramModel: 'nova-3',
     deepgramApiKey: '',
     whisperApiKey: '',
+    // Whisper-only lexicon hint (names, jargon, accents). Sent as `initial_prompt`
+    // — the single biggest precision lever for the faster-whisper backend.
+    initialPrompt: '',
     correctionLevel: 'off',
     autopasteEnabled: true,
     llmCorrectionEnabled: false,
@@ -874,6 +877,26 @@ ipcMain.handle('log-error', (_, msg) => {
     return true;
 });
 
+// ─── Whisper precision fields ───────────────────────────────
+// Builds the `extraFields` map sent to the faster-whisper API. We pin the
+// modern long-form recipe explicitly (VAD on, prior-text off, beam 5) so the
+// result is robust regardless of server defaults, and attach the user's
+// lexicon hint when set. `batched` is added only for file transcription.
+function buildWhisperFields({ batched = false } = {}) {
+    const fields = {
+        vad_filter: 'true',
+        condition_on_previous_text: 'false',
+        beam_size: '5',
+    };
+    const prompt = (mainSettings.initialPrompt || '').trim();
+    if (prompt) fields.initial_prompt = prompt;
+    if (batched) {
+        fields.batched = 'true';
+        fields.batch_size = '8';
+    }
+    return fields;
+}
+
 // ─── Whisper STT (direct call from main, no backend hop) ────
 // Posts the WebM buffer straight to the Whisper API (modern faster-whisper
 // or OpenAI-compatible service). Same pattern as callDeepgram — eliminates
@@ -915,6 +938,15 @@ async function callWhisperDirect(audioBuffer, language, whisperUrl, apiKey, opts
     if (language && language !== 'auto') {
         parts.push(Buffer.from(
             `\r\n--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${language}`
+        ));
+    }
+    // Extra text fields (initial_prompt, vad_filter, beam_size, batched, …).
+    // Field names are fixed by our code (no injection); values are body
+    // content. The boundary carries a random suffix so user text can't collide.
+    for (const [name, value] of Object.entries(opts.extraFields || {})) {
+        if (value === undefined || value === null || value === '') continue;
+        parts.push(Buffer.from(
+            `\r\n--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}`
         ));
     }
     parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
@@ -991,7 +1023,9 @@ ipcMain.handle('process-audio', async (_, payload) => {
                     || process.env.WHISPER_URL
                     || 'http://127.0.0.1:9990';
                 console.log('[PROCESS] Whisper →', wUrl, '(auth:', wKey ? 'yes' : 'no', ',', webmBuffer.length, 'bytes)');
-                transcript = await callWhisperDirect(webmBuffer, language, wUrl, wKey);
+                transcript = await callWhisperDirect(webmBuffer, language, wUrl, wKey, {
+                    extraFields: buildWhisperFields(),
+                });
             } catch (err) {
                 const msg = err.message || '';
                 if (msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND')) {
@@ -1172,6 +1206,8 @@ ipcMain.handle('transcribe-file', async (_, payload) => {
             mimeType: mimeForFile(filePath),
             filename: path.basename(filePath),
             timeoutMs: TRANSCRIBE_FILE_TIMEOUT_MS,
+            // Long uploads: batched pipeline gives ~6-8× throughput on GPU.
+            extraFields: buildWhisperFields({ batched: true }),
         });
         const durationMs = Date.now() - startedAt;
         console.log(`[TRANSCRIBE-FILE] ${path.basename(filePath)} (${(stat.size / 1_000_000).toFixed(1)} MB) → ${transcript.length} chars in ${durationMs}ms`);
