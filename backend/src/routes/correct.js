@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { isAllowedServiceUrl } = require('../lib/url-guard');
 // Uses Node 18+ native fetch — no `node-fetch` dep needed.
 
 // ─── Constants ───────────────────────────────────────────────
@@ -59,8 +60,13 @@ router.post('/', async (req, res) => {
         }
 
         // Priority: per-request body > env var > default. Lets the UI override
-        // the URL without restarting the backend.
-        const ollamaUrl = req.body.ollamaUrl || process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
+        // the URL without restarting the backend. The body value is validated
+        // (http/https only) so a malicious payload can't coerce a fetch to a
+        // file:// / gopher:// SSRF target — an invalid value falls back to env.
+        const requestedOllamaUrl = req.body.ollamaUrl;
+        const ollamaUrl = isAllowedServiceUrl(requestedOllamaUrl)
+            ? requestedOllamaUrl
+            : (process.env.OLLAMA_URL || 'http://127.0.0.1:11434');
         const model = req.body.model || process.env.OLLAMA_MODEL || 'llama3';
         const prompts = PROMPTS[lang] || PROMPTS.fr;
 

@@ -321,6 +321,12 @@ const { fixWebmBuffer } = require('./lib/webm-repair.cjs');
 // Electron in the picture.
 const { mimeForFile, isSupportedExt, SUPPORTED_EXTENSIONS } = require('./lib/mime-types.cjs');
 
+// ─── Service URL guard ──────────────────────────────────────
+// Validates the user-supplied Whisper URL before it reaches the HTTP client,
+// blocking protocol-based SSRF (file://, gopher://, …). Host is intentionally
+// unrestricted — a LAN Whisper box is a legitimate config.
+const { isAllowedServiceUrl } = require('./lib/url-guard.cjs');
+
 // 1.5 GB — caps "Transcrire un fichier" at something reasonable. The live
 // recording cap (MAX_AUDIO_BYTES, 50 MB) intentionally stays low because no
 // one dictates a 50 MB voice memo; uploaded videos can legitimately reach
@@ -851,6 +857,12 @@ ipcMain.handle('log-error', (_, msg) => {
 async function callWhisperDirect(audioBuffer, language, whisperUrl, apiKey, opts = {}) {
     if (!whisperUrl) {
         throw new Error('Whisper URL non configurée — ajoutez-la dans Paramètres > Avancé');
+    }
+    // Reject anything that isn't a plain http(s) endpoint before we build the
+    // request — closes protocol-based SSRF. Covers both the live-recording and
+    // file-transcription flows since both reach Whisper through here.
+    if (!isAllowedServiceUrl(whisperUrl)) {
+        throw new Error('Whisper URL invalide — utilisez une URL http(s) (Paramètres > Avancé)');
     }
     // Strip trailing /transcribe if user pasted the full endpoint URL
     const base = whisperUrl.replace(/\/transcribe\/?$/, '');
