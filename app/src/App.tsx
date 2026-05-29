@@ -35,7 +35,7 @@ function Pill() {
     useSyncSettings();
 
     useEffect(() => {
-        const api = (window as any).voixify;
+        const api = window.voixify;
         if (!api) return;
 
         api.rendererReady();

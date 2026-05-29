@@ -57,7 +57,7 @@ interface UseSyncSettingsOptions {
 
 export function useSyncSettings({ hydrateHotkey = false }: UseSyncSettingsOptions = {}) {
     useEffect(() => {
-        const api = (window as any).voixify;
+        const api = window.voixify;
         if (!api) return;
 
         // 1) Hydrate from main on mount — this overwrites whatever the local
@@ -86,7 +86,7 @@ export function useSyncSettings({ hydrateHotkey = false }: UseSyncSettingsOption
     // back to all windows including this one; that echo is a no-op.
     const setSetting = useCallback(<K extends SyncableSettingKey>(key: K, value: unknown) => {
         applyPayloadToStore({ [key]: value });
-        const api = (window as any).voixify;
+        const api = window.voixify;
         api?.updateSettings?.({ [key]: value }).catch(() => { /* best effort */ });
     }, []);
 

@@ -2,24 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSyncSettings } from '../hooks/useSyncSettings';
 import { useVoixifyStore } from '../stores/voixifyStore';
 
-// Voixify bridge surface used by this window. Kept minimal — just the methods
-// the file-transcription flow actually needs.
-interface VoixifyApi {
-    closeTranscribe?: () => Promise<void>;
-    pickTranscriptionFile?: () => Promise<{ path: string; name: string; sizeBytes: number } | null>;
-    transcribeFile?: (payload: { filePath: string; language?: string }) => Promise<TranscribeResult>;
-    saveTranscription?: (payload: { content: string; format: 'txt' | 'md'; suggestedName?: string }) => Promise<{ success?: boolean; canceled?: boolean; path?: string; error?: string }>;
-    copyToClipboard?: (text: string) => Promise<void>;
-}
-
-interface TranscribeResult {
-    success: boolean;
-    transcript?: string;
-    durationMs?: number;
-    fileName?: string;
-    sizeBytes?: number;
-    error?: string;
-}
+// The window.voixify bridge surface is declared globally in src/voixify.d.ts.
 
 type State =
     | { status: 'idle' }
@@ -54,7 +37,7 @@ export default function FileTranscriber() {
     const [transcript, setTranscript] = useState<string>('');
     const [savedHint, setSavedHint] = useState<string | null>(null);
 
-    const api = (window as any).voixify as VoixifyApi | undefined;
+    const api = window.voixify;
 
     // Clear the "Sauvegardé" hint after a few seconds.
     useEffect(() => {

@@ -20,7 +20,7 @@ const RECOMMENDED_LOCAL_MODELS = [
     { pull: 'phi3.5', why: 'Microsoft, équilibré' },
 ];
 
-const api = (window as any).voixify;
+const api = window.voixify;
 
 type Tab = 'transcription' | 'input' | 'advanced' | 'history';
 

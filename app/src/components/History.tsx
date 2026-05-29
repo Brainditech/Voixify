@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useVoixifyStore } from '../stores/voixifyStore';
 
-const api = (window as any).voixify;
+const api = window.voixify;
 
 function timeAgo(ts: number): string {
     const diff = Date.now() - ts;

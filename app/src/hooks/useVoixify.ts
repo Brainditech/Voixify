@@ -22,7 +22,7 @@ export function useVoixify() {
     // stopRecording callback always reads the current value without becoming
     // a dependency that retriggers downstream effects.
     useEffect(() => {
-        const api = (window as any).voixify;
+        const api = window.voixify;
         if (!api?.getBackendUrl) return;
         api.getBackendUrl().then((url: string) => {
             if (typeof url === 'string' && url) backendUrlRef.current = url;
@@ -39,7 +39,7 @@ export function useVoixify() {
     }, [start, isRecording]);
 
     const stopRecording = useCallback(async () => {
-        const api = (window as any).voixify;
+        const api = window.voixify;
         if (!isRecording()) {
             api?.hideWindow();
             return;
